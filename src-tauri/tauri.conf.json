@@ -34,14 +34,6 @@
       "icons/icon.ico"
     ],
     "resources": ["../public/data/*"],
-    "createUpdaterArtifacts": true
-  },
-  "plugins": {
-    "updater": {
-      "endpoints": [
-        "https://github.com/YOUR_USERNAME/skill-switch/releases/download/v__VERSION__/latest.json"
-      ],
-      "pubkey": ""
-    }
+    "createUpdaterArtifacts": false
   }
 }
