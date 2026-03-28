@@ -34,6 +34,10 @@
       "icons/icon.ico"
     ],
     "resources": ["../public/data/*"],
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "exceptionRequirement": false
+    }
   }
 }

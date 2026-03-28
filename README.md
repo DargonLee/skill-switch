@@ -71,6 +71,20 @@
 
 ---
 
+## 常见问题
+
+### macOS: "无法打开应用，因为无法验证开发者"
+
+从 GitHub Releases 下载的应用未经过 Apple 签名，首次打开可能会被 macOS 阻止。解决方法：
+
+```bash
+xattr -d com.apple.quarantine /Applications/skill-switch.app
+```
+
+运行后即可正常打开应用。
+
+---
+
 ## 开发
 
 ```bash
