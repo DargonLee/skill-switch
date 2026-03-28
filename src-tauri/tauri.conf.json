@@ -36,8 +36,7 @@
     "resources": ["../public/data/*"],
     "createUpdaterArtifacts": false,
     "macOS": {
-      "entitlements": "entitlements.plist",
-      "exceptionRequirement": false
+      "entitlements": "entitlements.plist"
     }
   }
 }
