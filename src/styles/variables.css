@@ -1,0 +1,302 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap");
+
+:root {
+  color-scheme: light;
+  --canvas: oklch(98.9% 0.002 260);
+  --canvas-secondary: oklch(97.2% 0.004 260);
+  --canvas-tertiary: oklch(95.2% 0.006 260);
+  --surface: oklch(100% 0 0 / 0.96);
+  --surface-strong: oklch(99.8% 0.002 260);
+  --surface-muted: oklch(97.8% 0.006 255);
+
+  --ink: oklch(24% 0.018 262);
+  --ink-secondary: oklch(42% 0.012 262);
+  --ink-tertiary: oklch(58% 0.01 262);
+  --ink-muted: oklch(74% 0.008 262);
+
+  --accent: oklch(63% 0.17 257);
+  --accent-hover: oklch(58% 0.16 257);
+  --accent-muted: oklch(95.7% 0.018 257);
+  --accent-subtle: oklch(97.5% 0.01 257);
+  --accent-soft: color-mix(in oklch, var(--accent) 10%, white);
+  --accent-contrast: oklch(99.4% 0.002 260);
+
+  --success: oklch(66% 0.13 152);
+  --danger: oklch(62% 0.17 26);
+  --warning: oklch(78% 0.12 88);
+
+  --divider: oklch(89% 0.006 260);
+  --divider-strong: oklch(82% 0.008 260);
+  --overlay: oklch(17% 0.01 260 / 0.16);
+  --shell-wash: linear-gradient(180deg, oklch(99.3% 0.002 260) 0%, oklch(98.5% 0.004 255) 100%);
+
+  --font-display: "Manrope", "SF Pro Display", ui-sans-serif, sans-serif;
+  --font-body: "Manrope", "SF Pro Text", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace;
+
+  --text-xs: 0.6875rem;
+  --text-sm: 0.875rem;
+  --text-base: 0.95rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: clamp(2rem, 4vw, 2.7rem);
+
+  --leading-tight: 1.22;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.7;
+
+  --tracking-tight: -0.03em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.03em;
+
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+
+  --shadow-xs: 0 1px 2px oklch(20% 0.01 260 / 0.03);
+  --shadow-sm: 0 4px 12px oklch(20% 0.01 260 / 0.05);
+  --shadow-md: 0 10px 28px oklch(20% 0.01 260 / 0.07);
+  --shadow-lg: 0 18px 42px oklch(20% 0.01 260 / 0.09);
+  --shadow-xl: 0 26px 56px oklch(20% 0.01 260 / 0.12);
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+
+  /* ── ui-demo layout tokens ── */
+  --sidebar-width: 224px;
+  --detail-min-width: 320px;
+
+  /* App brand colors */
+  --app-claude:   #2563eb;
+  --app-codex:    #7c3aed;
+  --app-cursor:   #0891b2;
+
+  /* Semantic surface aliases (map to oklch vars) */
+  --bg-base:     var(--surface);
+  --bg-elevated: var(--canvas);
+  --bg-surface:  var(--canvas-secondary);
+  --bg-muted:    var(--canvas-tertiary);
+  --border-subtle:  var(--divider);
+  --border-default: var(--divider-strong);
+  --text-primary:   var(--ink);
+  --text-secondary: var(--ink-secondary);
+  --text-muted:     var(--ink-tertiary);
+  --text-subtle:    var(--ink-muted);
+  --primary:        var(--accent);
+  --primary-hover:  var(--accent-hover);
+  --primary-muted:  var(--accent-muted);
+  --error:          var(--danger);
+
+  --duration-instant: 50ms;
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+
+  --transition-fast: var(--duration-fast) var(--ease-out-quart);
+  --transition-normal: var(--duration-normal) var(--ease-out-quart);
+  --transition-slow: var(--duration-slow) var(--ease-out-expo);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --canvas: oklch(17% 0.008 262);
+    --canvas-secondary: oklch(19% 0.01 262);
+    --canvas-tertiary: oklch(22% 0.012 262);
+    --surface: oklch(20% 0.01 262 / 0.96);
+    --surface-strong: oklch(22% 0.01 262);
+    --surface-muted: oklch(24% 0.012 255);
+
+    --ink: oklch(95% 0.004 260);
+    --ink-secondary: oklch(82% 0.008 260);
+    --ink-tertiary: oklch(68% 0.008 260);
+    --ink-muted: oklch(52% 0.008 260);
+
+    --accent: oklch(72% 0.14 257);
+    --accent-hover: oklch(77% 0.14 257);
+    --accent-muted: oklch(30% 0.03 257);
+    --accent-subtle: oklch(24% 0.02 257);
+    --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+    --accent-contrast: oklch(17% 0.008 262);
+
+    --divider: oklch(29% 0.008 262);
+    --divider-strong: oklch(36% 0.01 262);
+    --overlay: oklch(4% 0.004 260 / 0.42);
+    --shell-wash: linear-gradient(180deg, oklch(15% 0.008 262) 0%, oklch(13% 0.008 255) 100%);
+
+    --shadow-xs: 0 1px 2px oklch(0% 0 0 / 0.18);
+    --shadow-sm: 0 4px 12px oklch(0% 0 0 / 0.2);
+    --shadow-md: 0 10px 28px oklch(0% 0 0 / 0.26);
+    --shadow-lg: 0 18px 42px oklch(0% 0 0 / 0.32);
+    --shadow-xl: 0 26px 56px oklch(0% 0 0 / 0.38);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: oklch(17% 0.008 262);
+  --canvas-secondary: oklch(19% 0.01 262);
+  --canvas-tertiary: oklch(22% 0.012 262);
+  --surface: oklch(20% 0.01 262 / 0.96);
+  --surface-strong: oklch(22% 0.01 262);
+  --surface-muted: oklch(24% 0.012 255);
+
+  --ink: oklch(95% 0.004 260);
+  --ink-secondary: oklch(82% 0.008 260);
+  --ink-tertiary: oklch(68% 0.008 260);
+  --ink-muted: oklch(52% 0.008 260);
+
+  --accent: oklch(72% 0.14 257);
+  --accent-hover: oklch(77% 0.14 257);
+  --accent-muted: oklch(30% 0.03 257);
+  --accent-subtle: oklch(24% 0.02 257);
+  --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+  --accent-contrast: oklch(17% 0.008 262);
+
+  --divider: oklch(29% 0.008 262);
+  --divider-strong: oklch(36% 0.01 262);
+  --overlay: oklch(4% 0.004 260 / 0.42);
+  --shell-wash: linear-gradient(180deg, oklch(15% 0.008 262) 0%, oklch(13% 0.008 255) 100%);
+
+  --shadow-xs: 0 1px 2px oklch(0% 0 0 / 0.18);
+  --shadow-sm: 0 4px 12px oklch(0% 0 0 / 0.2);
+  --shadow-md: 0 10px 28px oklch(0% 0 0 / 0.26);
+  --shadow-lg: 0 18px 42px oklch(0% 0 0 / 0.32);
+  --shadow-xl: 0 26px 56px oklch(0% 0 0 / 0.38);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  height: 100%;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  height: 100%;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--ink);
+  background: var(--shell-wash);
+}
+
+::selection {
+  background: var(--accent-muted);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--accent) 72%, white);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--divider-strong);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-muted);
+}
+
+.text-display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+}
+
+.text-mono {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}

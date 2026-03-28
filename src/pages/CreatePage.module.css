@@ -1,0 +1,279 @@
+.page { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+
+/* ── Header ── */
+.header {
+  height: 56px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px;
+  background: var(--bg-base); border-bottom: 1px solid var(--border-subtle);
+}
+.title { font-size: 1rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em; }
+.headerActions { display: flex; gap: 10px; }
+
+.cancelBtn {
+  padding: 8px 16px; border-radius: 12px;
+  background: var(--bg-surface); border: 1px solid var(--border-default);
+  color: var(--text-secondary); font-size: 0.82rem; font-weight: 600;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+  transition: all 0.15s ease;
+}
+.cancelBtn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-muted); }
+
+.saveBtn {
+  padding: 8px 18px; border-radius: 12px;
+  background: var(--primary); color: white;
+  font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+  transition: all 0.15s ease;
+}
+.saveBtn:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+.saveBtn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ── Error Banner ── */
+.errorBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  background: rgba(239, 68, 68, 0.08);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+  font-size: 0.82rem;
+  color: var(--error);
+}
+.errorBanner button {
+  padding: 4px 10px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+  color: var(--error);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.errorBanner button:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* ── Body ── */
+.body { flex: 1; display: flex; overflow: hidden; }
+
+/* ── Aside ── */
+.aside {
+  width: 290px; flex-shrink: 0; overflow-y: auto;
+  padding: 20px; background: var(--bg-base);
+  border-right: 1px solid var(--border-subtle);
+  display: flex; flex-direction: column; gap: 12px;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.aside::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.asideHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.05));
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  border-radius: 14px;
+  margin-bottom: 4px;
+}
+
+.asideIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  flex-shrink: 0;
+}
+
+.asideTitle {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.asideSubtitle {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ── Field Card ── */
+.field {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: 12px;
+  transition: all 0.15s ease;
+}
+.field:hover {
+  border-color: rgba(99, 102, 241, 0.1);
+}
+
+.label {
+  font-size: 0.68rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.hint { font-size: 0.68rem; color: var(--text-subtle); line-height: 1.4; }
+
+.input, .textarea {
+  padding: 10px 12px; border-radius: 12px;
+  background: var(--bg-base); border: 1px solid var(--border-default);
+  font-size: 0.85rem; color: var(--text-primary); font-family: inherit;
+  transition: all 0.15s ease;
+}
+.input:hover, .textarea:hover { border-color: var(--primary); }
+.input:focus, .textarea:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px var(--primary-muted); }
+.textarea { resize: none; line-height: 1.55; }
+
+/* ── Color Picker ── */
+.colors { display: flex; gap: 8px; margin-top: 4px; }
+.colorBtn {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.colorBtn:hover { transform: scale(1.12); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); }
+.colorBtnActive { border-color: var(--ink) !important; transform: scale(1.08); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); }
+
+.directoryOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.directoryOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  padding: 12px 14px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  transition: all 0.15s ease;
+}
+
+.directoryOption:hover {
+  border-color: var(--primary);
+  background: var(--primary-muted);
+}
+
+.directoryOption input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.directoryMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.directoryLabel {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.directoryHint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.editNotice {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.editNotice code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+/* ── Directory Preview ── */
+.dirPreview {
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-family: var(--font-mono); font-size: 0.72rem; line-height: 2.2;
+}
+.dirRoot {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--primary); font-weight: 700;
+}
+.dirFile {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--text-secondary); padding-left: 18px;
+}
+
+/* ── Editor ── */
+.editor { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-elevated); }
+
+/* ── Editor Header ── */
+.editorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  padding: 14px 20px;
+}
+
+.editorFilename {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.editorNote {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* ── Code Area ── */
+.codeArea {
+  flex: 1; padding: 18px 24px;
+  font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.75;
+  color: var(--text-secondary); background: var(--bg-base);
+  border: none; resize: none; outline: none; min-height: 0;
+}
+
+/* ── Hint Bar ── */
+.hintBar {
+  padding: 10px 20px; flex-shrink: 0;
+  background: var(--bg-base);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.74rem; color: var(--text-muted);
+  display: flex; align-items: center; gap: 8px;
+}
