@@ -32,6 +32,7 @@ const SKILL_SOURCES_DIR: &str = "skill-sources";
 const DEFAULT_LIBRARY_REPO_DIR: &str = "library-repo";
 const SOURCE_ARCHIVES_DIR: &str = "source-archives";
 const STANDARD_SKILL_DIRECTORIES: &[&str] = &["scripts", "references", "assets"];
+const SUPPORTED_APP_IDS: &[&str] = &["claude", "codex", "cursor", "opencode"];
 
 pub fn now_ms() -> i64 {
     Utc::now().timestamp_millis()
@@ -96,6 +97,7 @@ fn app_cli_dir_aliases(app_id: &str) -> Option<&'static [&'static str]> {
         "claude" => Some(&[".claude"]),
         "codex" => Some(&[".codex"]),
         "cursor" => Some(&[".cursor"]),
+        "opencode" => Some(&[".config/opencode"]),
         _ => None,
     }
 }
@@ -3630,7 +3632,7 @@ pub fn check_symlink_status(
     };
 
     // Check each app's installation status
-    let apps = ["claude", "codex", "cursor"];
+    let apps = SUPPORTED_APP_IDS;
     let mut statuses = Vec::new();
 
     for app_id in apps {
@@ -3702,7 +3704,7 @@ pub fn repair_broken_symlinks(
     let mut removed_symlinks = Vec::new();
     let mut errors = Vec::new();
 
-    let apps = ["claude", "codex", "cursor"];
+    let apps = SUPPORTED_APP_IDS;
 
     for app_id in apps {
         for install_path in app_skill_paths(&base_path, app_id, slug)? {
@@ -3765,7 +3767,7 @@ pub fn migrate_copied_skills_to_symlinks(
     let mut errors = Vec::new();
 
     // Apps to check
-    let apps = ["claude", "codex", "cursor"];
+    let apps = SUPPORTED_APP_IDS;
 
     for app_id in apps {
         for skills_dir in app_skill_dirs(&home_dir, app_id)? {
