@@ -103,8 +103,7 @@ fn app_cli_dir_aliases(app_id: &str) -> Option<&'static [&'static str]> {
 }
 
 fn app_cli_dirs(base_path: &Path, app_id: &str) -> Result<Vec<PathBuf>, String> {
-    let aliases =
-        app_cli_dir_aliases(app_id).ok_or_else(|| format!("未知的应用: {}", app_id))?;
+    let aliases = app_cli_dir_aliases(app_id).ok_or_else(|| format!("未知的应用: {}", app_id))?;
     Ok(aliases.iter().map(|alias| base_path.join(alias)).collect())
 }
 
@@ -572,7 +571,10 @@ fn dedupe_managed_skill_resources(library: &mut RepoLibrary) -> HashMap<String, 
     for indexes in grouped_indexes.values().filter(|indexes| indexes.len() > 1) {
         let mut canonical_index = indexes[0];
         for &index in indexes.iter().skip(1) {
-            if should_prefer_skill_resource(&library.resources[index], &library.resources[canonical_index]) {
+            if should_prefer_skill_resource(
+                &library.resources[index],
+                &library.resources[canonical_index],
+            ) {
                 canonical_index = index;
             }
         }
@@ -673,10 +675,7 @@ fn load_repo_library_for_legacy_skills(
 
 fn is_backup_eligible_skill_resource(resource: &Resource) -> bool {
     is_managed_skill_resource(resource)
-        && !resource
-            .tags
-            .iter()
-            .any(|tag| tag.starts_with("_remote:"))
+        && !resource.tags.iter().any(|tag| tag.starts_with("_remote:"))
 }
 
 fn parse_skill_front_matter(content: &str) -> (Option<String>, Option<String>, Vec<String>) {
@@ -988,7 +987,9 @@ fn sync_backup_eligible_skills_from_backup_repo(
         .collect::<HashSet<_>>();
 
     if !removed_ids.is_empty() {
-        library.resources.retain(|resource| !removed_ids.contains(&resource.id));
+        library
+            .resources
+            .retain(|resource| !removed_ids.contains(&resource.id));
         for resource_id in &removed_ids {
             detach_resource_from_all_profiles(&mut library.project_profiles, resource_id);
         }
@@ -1010,7 +1011,9 @@ fn sync_backup_eligible_skills_from_backup_repo(
     Ok(())
 }
 
-fn detach_backup_git_metadata_from_live_skill_sources(app: &tauri::AppHandle) -> Result<Vec<String>, String> {
+fn detach_backup_git_metadata_from_live_skill_sources(
+    app: &tauri::AppHandle,
+) -> Result<Vec<String>, String> {
     let source_root = skill_sources_dir(app)?;
     if !source_root.exists() {
         return Ok(Vec::new());
@@ -4208,10 +4211,12 @@ fn parse_skill_metadata(content: &str) -> (String, Option<String>) {
 
     if !desc_lines.is_empty() {
         description = Some(desc_lines.join(" "));
-        // Truncate description if too long
+        // Truncate description if too long (char-count based to avoid
+        // panicking on multi-byte UTF-8 boundaries such as CJK text)
         if let Some(ref desc) = description {
-            if desc.len() > 200 {
-                description = Some(format!("{}...", &desc[..197]));
+            if desc.chars().count() > 200 {
+                let truncated: String = desc.chars().take(197).collect();
+                description = Some(format!("{}...", truncated));
             }
         }
     }
@@ -4538,11 +4543,9 @@ mod tests {
 
     #[test]
     fn rejects_invalid_standard_skill_directory() {
-        let error = validate_standard_skill_directories(&[
-            "scripts".to_string(),
-            "agents".to_string(),
-        ])
-        .expect_err("invalid directory should fail validation");
+        let error =
+            validate_standard_skill_directories(&["scripts".to_string(), "agents".to_string()])
+                .expect_err("invalid directory should fail validation");
 
         assert!(error.contains("agents"));
     }
@@ -4586,8 +4589,7 @@ mod tests {
 
         let file = fs::File::create(&zip_path).expect("zip file should be created");
         let mut zip = ZipWriter::new(file);
-        let options =
-            SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
         write_directory_to_zip(&mut zip, &skill_root, &skill_root, options)
             .expect("zip helper should succeed");
