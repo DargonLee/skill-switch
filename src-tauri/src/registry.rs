@@ -284,7 +284,7 @@ fn get_app_skills_dir(home: &Path, app: &str) -> std::path::PathBuf {
         "cursor" => home.join(".cursor").join("skills"),
         "windsurf" => home.join(".windsurf").join("skills"),
         "aider" => home.join(".aider").join("skills"),
-        "opencode" => home.join(".config").join("opencode").join("skills"),
+        "opencode" => home.join(".agents").join("skills"),
         _ => home.join(format!(".{}", app)).join("skills"),
     }
 }

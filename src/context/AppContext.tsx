@@ -9,7 +9,7 @@ export const APP_LIST = [
   { id: "claude", label: "Claude Code", iconSrc: claudeCodeIcon, accentColor: "#2563eb", skillPathLabel: "~/.claude/skills/" },
   { id: "codex", label: "Codex CLI", iconSrc: codexIcon, accentColor: "#7c3aed", skillPathLabel: "~/.codex/skills/" },
   { id: "cursor", label: "Cursor", iconSrc: cursorIcon, accentColor: "#0891b2", skillPathLabel: "~/.cursor/skills/" },
-  { id: "opencode", label: "OpenCode", iconSrc: opencodeIcon, accentColor: "#22c55e", skillPathLabel: "~/.config/opencode/skills/" },
+  { id: "opencode", label: "OpenCode", iconSrc: opencodeIcon, accentColor: "#22c55e", skillPathLabel: "~/.agents/skills/" },
 ] as const;
 
 export type AppId = (typeof APP_LIST)[number]["id"];

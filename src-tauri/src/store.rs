@@ -97,7 +97,7 @@ fn app_cli_dir_aliases(app_id: &str) -> Option<&'static [&'static str]> {
         "claude" => Some(&[".claude"]),
         "codex" => Some(&[".codex"]),
         "cursor" => Some(&[".cursor"]),
-        "opencode" => Some(&[".config/opencode"]),
+        "opencode" => Some(&[".agents", ".config/opencode"]),
         _ => None,
     }
 }
