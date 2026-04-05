@@ -9,7 +9,7 @@ SkillSwitch is a cross-platform desktop app for managing AI coding assistant "Sk
 ## Development Commands
 
 ```bash
-# Install dependencies
+# Install dependencies (requires pnpm 9, Node 20)
 pnpm install
 
 # Start dev server with Tauri window (full app)
@@ -30,6 +30,8 @@ cargo clippy --release -- -D warnings
 cargo fmt -- --check          # format check (used in CI)
 ```
 
+**Note**: No test suite is currently configured.
+
 ## Architecture
 
 ### Frontend-Backend Communication
@@ -48,14 +50,11 @@ TypeScript types in `src/types/index.ts` mirror the Rust domain types in `src-ta
 
 ### State Management
 
-React Context providers in `src/context/` manage all state:
+React Context providers in `src/context/` manage all state, nested in this order (outer to inner):
 
-- `AppContext` - Global app state, current app selection (Claude/Codex/Gemini/etc.)
-- `SkillContext` - Skill CRUD operations
-- `ProjectContext` - Project management
-- `SourceContext` - Repo source management (sync, updates)
-- `SettingsContext` - User preferences
-- `UpdaterContext` - App update checking and installation
+```
+AppProvider → SettingsProvider → ToastProvider → SourceProvider → SkillProvider → ProjectProvider → UpdaterProvider
+```
 
 Each context loads data on mount and provides async methods that wrap the service layer.
 
@@ -114,7 +113,7 @@ On app startup, the backend automatically runs `migrate_copied_skills_to_symlink
 ## CI/CD
 
 - **CI** (`ci.yml`): Runs on push/PR to main/develop. Checks TypeScript types and Rust clippy.
-- **PR Check** (`pr-check.yml`): Runs on PRs to main/develop. Checks TypeScript types and Rust formatting.
+- **PR Check** (`pr-check.yml`): Runs on PRs to main/develop. Checks TypeScript types, Rust formatting, and warns on `console.log`/`debugger` statements in source files.
 - **Release** (`release.yml`): Triggered by git tags. Builds for macOS (arm64 + x86_64), Linux, Windows.
 
 ## UI Design System
