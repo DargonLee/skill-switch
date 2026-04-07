@@ -3,7 +3,9 @@ use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 
-use crate::domain::{RegistryInstallInput, RegistryInstallResult, RegistrySearchResult, RegistrySkillContent};
+use crate::domain::{
+    RegistryInstallInput, RegistryInstallResult, RegistrySearchResult, RegistrySkillContent,
+};
 
 const SKILLS_SH_API: &str = "https://skills.sh/api";
 const GITHUB_API: &str = "https://api.github.com";
@@ -45,7 +47,10 @@ pub fn search_registry(query: &str, limit: u32) -> Result<RegistrySearchResult, 
 }
 
 /// Fetch SKILL.md content from a registry skill
-pub fn fetch_registry_content(source: &str, skill_id: &str) -> Result<RegistrySkillContent, String> {
+pub fn fetch_registry_content(
+    source: &str,
+    skill_id: &str,
+) -> Result<RegistrySkillContent, String> {
     let client = Client::builder()
         .user_agent(USER_AGENT)
         .build()
@@ -69,11 +74,11 @@ pub fn fetch_registry_content(source: &str, skill_id: &str) -> Result<RegistrySk
                 if let Ok(content) = response.text() {
                     // Check frontmatter name matches
                     if let Some(frontmatter_name) = parse_frontmatter_name(&content) {
-                        if frontmatter_name == skill_id || frontmatter_name == sanitize_skill_name(skill_id) {
-                            let skill_path = path
-                                .strip_suffix("SKILL.md")
-                                .unwrap_or(&path)
-                                .to_string();
+                        if frontmatter_name == skill_id
+                            || frontmatter_name == sanitize_skill_name(skill_id)
+                        {
+                            let skill_path =
+                                path.strip_suffix("SKILL.md").unwrap_or(&path).to_string();
                             return Ok(RegistrySkillContent {
                                 content,
                                 branch,
@@ -90,15 +95,16 @@ pub fn fetch_registry_content(source: &str, skill_id: &str) -> Result<RegistrySk
 }
 
 /// Install a registry skill to specified apps
-pub fn install_registry_skill(input: &RegistryInstallInput) -> Result<RegistryInstallResult, String> {
+pub fn install_registry_skill(
+    input: &RegistryInstallInput,
+) -> Result<RegistryInstallResult, String> {
     let sanitized = sanitize_skill_name(&input.skill_name);
 
     if sanitized.is_empty() {
         return Err("Invalid skill name".to_string());
     }
 
-    let home = dirs::home_dir()
-        .ok_or_else(|| "Cannot determine home directory".to_string())?;
+    let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
 
     // Canonical location — matches the official skills CLI behavior
     let canonical_dir = home.join(".agents").join("skills").join(&sanitized);
@@ -190,7 +196,10 @@ fn get_default_branch(client: &Client, source: &str) -> Result<String, String> {
 }
 
 fn get_skill_paths(client: &Client, source: &str, branch: &str) -> Result<Vec<String>, String> {
-    let url = format!("{}/repos/{}/git/trees/{}?recursive=1", GITHUB_API, source, branch);
+    let url = format!(
+        "{}/repos/{}/git/trees/{}?recursive=1",
+        GITHUB_API, source, branch
+    );
 
     #[derive(Deserialize)]
     struct TreeEntry {
@@ -275,6 +284,7 @@ fn get_app_skills_dir(home: &Path, app: &str) -> std::path::PathBuf {
         "cursor" => home.join(".cursor").join("skills"),
         "windsurf" => home.join(".windsurf").join("skills"),
         "aider" => home.join(".aider").join("skills"),
+        "opencode" => home.join(".agents").join("skills"),
         _ => home.join(format!(".{}", app)).join("skills"),
     }
 }
