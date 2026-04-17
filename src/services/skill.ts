@@ -255,6 +255,14 @@ export async function showInFinder(path: string): Promise<Result<void>> {
 }
 
 /**
+ * Show a skill's source directory in the system file manager
+ * Maps to backend: skill_show_in_finder(skill_id) -> ()
+ */
+export async function skillShowInFinder(skillId: string): Promise<Result<void>> {
+  return tauriInvoke<void>("skill_show_in_finder", { skillId });
+}
+
+/**
  * Scan skills from an external app directory (e.g., ~/.claude/skills/)
  * Maps to backend: scan_external_skills(app_id) -> Vec<ExternalSkillDto>
  */

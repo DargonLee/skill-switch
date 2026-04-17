@@ -42,6 +42,7 @@ import {
   skillListDirectory,
   skillReadFile,
   showInFinder,
+  skillShowInFinder,
   formatSkillOperationError,
 } from "../services/skill";
 import { IconButton } from "../components/ui/IconButton";
@@ -468,9 +469,6 @@ function DirectoryBrowser({
             </span>
           ))}
         </div>
-        <button className={s.finderBtn} onClick={handleShowInFinder} title="在 Finder 中显示">
-          <ExternalLink size={12} />
-        </button>
         {currentPath && (
           <button className={s.backBtn} onClick={handleBackToParent}>
             <ArrowLeft size={12} /> 上级
@@ -853,6 +851,18 @@ function DetailPanel({
             </div>
           </div>
           <div className={s.detailActions}>
+            <IconButton
+              icon={<ExternalLink size={16} />}
+              variant="default"
+              title="在 Finder 中显示"
+              onClick={async () => {
+                const result = await skillShowInFinder(skill.id);
+                if (!result.ok) {
+                  toast.error("无法打开 Finder");
+                }
+              }}
+              aria-label="在 Finder 中显示"
+            />
             <IconButton
               icon={<FileUp size={16} />}
               variant="default"

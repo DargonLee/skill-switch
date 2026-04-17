@@ -325,6 +325,19 @@ pub fn show_in_finder(path: String) -> Result<(), String> {
         return Err(format!("path does not exist: {}", path));
     }
 
+    open_in_system_file_manager(target_path)
+}
+
+#[tauri::command]
+pub fn skill_show_in_finder(app: tauri::AppHandle, skill_id: String) -> Result<(), String> {
+    let path = store::skill_source_dir_by_id(&app, &skill_id)?;
+    if !path.exists() {
+        return Err("skill 目录不存在".to_string());
+    }
+    open_in_system_file_manager(&path)
+}
+
+fn open_in_system_file_manager(target_path: &Path) -> Result<(), String> {
     // Use system `open -R` command which is more stable than showfile crate
     #[cfg(target_os = "macos")]
     {

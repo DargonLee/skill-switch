@@ -22,8 +22,8 @@ use commands::{
     skill_export_to_zip, skill_get, skill_import_from_dialog, skill_import_from_folder,
     skill_import_from_market, skill_import_from_zip, skill_install_global,
     skill_install_to_project, skill_list, skill_list_directory, skill_migrate_to_symlinks,
-    skill_read_file, skill_repair_broken_symlinks, skill_search, skill_uninstall_from_project,
-    skill_uninstall_global, skill_update,
+    skill_read_file, skill_repair_broken_symlinks, skill_search, skill_show_in_finder,
+    skill_uninstall_from_project, skill_uninstall_global, skill_update,
 };
 use updater::{check_app_update, download_and_install_update, get_current_version};
 
@@ -123,6 +123,7 @@ pub fn run() {
             project_update,
             project_delete,
             show_in_finder,
+            skill_show_in_finder,
             scan_external_skills,
             settings_get,
             settings_set,

@@ -38,7 +38,7 @@ type BackupSourceDraft = {
 
 const DEFAULT_BACKUP_SOURCE_DRAFT: BackupSourceDraft = {
   enabled: false,
-  remoteUrl: "",
+  remoteUrl: "git@github.com:DargonLee/My-Skills.git",
   branch: "main",
   localPath: null,
   lastSyncedAt: null,
@@ -97,7 +97,6 @@ export function SettingsPage() {
   const [backupAction, setBackupAction] = useState<"test" | "push" | "pull" | null>(null);
   const [showBackupGuide, setShowBackupGuide] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
-  const parsedBackupRepo = parseRepoFromRemoteUrl(backupDraft.remoteUrl);
 
   useEffect(() => {
     setBackupDraft(normalizeBackupSource(settings.backupSource));
@@ -179,10 +178,6 @@ export function SettingsPage() {
       return null;
     }
   }, [backupDraft, showToast, updateSettings]);
-
-  const handleSaveBackupSource = useCallback(async () => {
-    await persistBackupSource(true);
-  }, [persistBackupSource]);
 
   const handleBackupSourceAction = useCallback(async (action: "test" | "push" | "pull") => {
     const savedSource = await persistBackupSource(false);
@@ -418,14 +413,14 @@ export function SettingsPage() {
             </div>
           </section>
 
-          {/* 备份源 */}
+          {/* Git 同步 */}
           <section className={s.card} data-section="github">
             <div className={s.cardHeader}>
               <div className={s.cardTitleWrap}>
                 <div className={s.cardTitleIcon}>
                   <Github size={15} />
                 </div>
-                <h2 className={s.cardTitle}>备份源（SSH）</h2>
+                <h2 className={s.cardTitle}>Git 同步</h2>
               </div>
               <div className={s.cardHeaderActions}>
                 <button
@@ -444,8 +439,8 @@ export function SettingsPage() {
             <div className={s.rows}>
               <div className={s.row}>
                 <div className={s.rowBody}>
-                  <div className={s.rowLabel}>启用备份源</div>
-                  <div className={s.rowHint}>关闭后仍保留配置；启用时只同步自建 Skills，不包含第三方仓库安装项。</div>
+                  <div className={s.rowLabel}>自动同步到远端</div>
+                  <div className={s.rowHint}>启用后，新建/编辑/删除/导入 Skill 都会自动推送到 Git 仓库；仅同步自建 Skills。</div>
                 </div>
                 <Toggle
                   checked={backupDraft.enabled}
@@ -456,23 +451,19 @@ export function SettingsPage() {
               <div className={`${s.row} ${s.rowFull}`}>
                 <div className={s.backupField}>
                   <div className={s.rowLabel}>仓库 SSH 地址</div>
-                  <div className={s.rowHint}>建议使用 <code className={s.code}>git@github.com:owner/repo.git</code> 格式。</div>
+                  <div className={s.rowHint}>使用 <code className={s.code}>git@github.com:owner/repo.git</code> 格式。</div>
                   <input
                     className={`${s.repoInput} ${s.repoInputWide}`}
                     value={backupDraft.remoteUrl}
                     onChange={(e) => handleBackupDraftChange("remoteUrl", e.target.value)}
-                    placeholder="git@github.com:owner/skill-switch-backup.git"
+                    placeholder="git@github.com:DargonLee/My-Skills.git"
                   />
-                  <div className={s.rowHint}>
-                    解析后会把 <code className={s.code}>{parsedBackupRepo || "owner/repo"}</code> 显示在备份源 pin 上。
-                  </div>
                 </div>
               </div>
 
               <div className={`${s.row} ${s.rowFull}`}>
                 <div className={s.backupField}>
                   <div className={s.rowLabel}>目标分支</div>
-                  <div className={s.rowHint}>默认使用 <code className={s.code}>main</code>。</div>
                   <input
                     className={`${s.repoInput} ${s.repoInputWide}`}
                     value={backupDraft.branch}
@@ -484,63 +475,53 @@ export function SettingsPage() {
 
               <div className={s.row}>
                 <div className={s.rowBody}>
-                  <div className={s.rowLabel}>本地工作树</div>
-                  <div className={s.rowHint + " " + s.mono}>
-                    {backupDraft.localPath || "等待后端创建独立备份工作树"}
-                  </div>
-                  <div className={s.rowHint}>连接后这里会指向备份源的独立 Git 工作树，只保存自建 Skills。</div>
-                </div>
-                <button
-                  className={s.btn}
-                  disabled={!backupDraft.localPath}
-                  onClick={async () => {
-                    if (!backupDraft.localPath) return;
-                    const result = await showInFinder(backupDraft.localPath);
-                    if (!result.ok) {
-                      showToast("本地源目录暂时不可用");
-                    }
-                  }}
-                >
-                  <Folder size={14} /> 打开
-                </button>
-              </div>
-
-              <div className={s.row}>
-                <div className={s.rowBody}>
                   <div className={s.rowLabel}>上次同步</div>
                   <div className={s.rowHint}>{formatSyncTime(backupDraft.lastSyncedAt)}</div>
                 </div>
-                <button
-                  className={s.btn}
-                  disabled={backupAction !== null || !backupDraft.remoteUrl.trim()}
-                  onClick={() => handleBackupSourceAction("test")}
-                >
-                  {backupAction === "test" ? "连接中…" : "连接备份源"}
-                </button>
               </div>
 
               <div className={`${s.row} ${s.rowFull}`}>
                 <div className={s.backupField}>
-                  <div className={s.rowLabel}>保存与同步入口</div>
-                  <div className={s.rowHint}>先保存配置，再用下面入口连接、推送或拉取。推送时仅会提交自建 Skills。</div>
+                  <div className={s.rowLabel}>操作</div>
+                  <div className={s.rowHint}>保存配置后自动连接远端；手动推拉可在自动同步之外额外操作。</div>
                 </div>
                 <div className={s.syncBtns}>
-                  <button className={s.btnPrimary} onClick={handleSaveBackupSource}>
-                    保存配置
+                  <button
+                    className={s.btnPrimary}
+                    disabled={backupAction !== null || !backupDraft.remoteUrl.trim()}
+                    onClick={async () => {
+                      const saved = await persistBackupSource(false);
+                      if (!saved) return;
+                      setBackupAction("test");
+                      const connectResult = await backupSourceConnect();
+                      if (!connectResult.ok) {
+                        showToast(`连接失败：${connectResult.error}`);
+                        setBackupAction(null);
+                        return;
+                      }
+                      const connectedSource = syncBackupDraftFromStatus(connectResult.value);
+                      await updateSettings({ backupSource: connectedSource });
+                      refreshSources(BACKUP_SOURCE_REPO_ID);
+                      await refreshSkills();
+                      showToast(buildBackupToast("已保存并连接成功", connectResult.value.notice));
+                      setBackupAction(null);
+                    }}
+                  >
+                    {backupAction === "test" ? "连接中…" : "保存并连接"}
                   </button>
                   <button
                     className={s.btn}
                     disabled={backupAction !== null}
                     onClick={() => handleBackupSourceAction("push")}
                   >
-                    {backupAction === "push" ? "推送中…" : <><Upload size={12} /> 推送</>}
+                    {backupAction === "push" ? "推送中…" : <><Upload size={12} /> 手动推送</>}
                   </button>
                   <button
                     className={s.btn}
                     disabled={backupAction !== null}
                     onClick={() => handleBackupSourceAction("pull")}
                   >
-                    {backupAction === "pull" ? "拉取中…" : <><Download size={12} /> 拉取</>}
+                    {backupAction === "pull" ? "拉取中…" : <><Download size={12} /> 手动拉取</>}
                   </button>
                 </div>
               </div>

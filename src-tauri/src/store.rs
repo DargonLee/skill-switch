@@ -1062,7 +1062,7 @@ fn create_legacy_skill_internal(
         &input.directories,
     )?;
 
-    let backup_sync = sync_backup_source_after_create(app);
+    let backup_sync = sync_backup_source_after_mutation(app);
 
     Ok(CreateLegacySkillResult {
         skill: resource_to_legacy_skill(&resource, &library),
@@ -1070,7 +1070,7 @@ fn create_legacy_skill_internal(
     })
 }
 
-fn sync_backup_source_after_create(app: &tauri::AppHandle) -> BackupSyncResult {
+fn sync_backup_source_after_mutation(app: &tauri::AppHandle) -> BackupSyncResult {
     const MAX_ATTEMPTS: usize = 3;
 
     let source = match backup_source_settings(app) {
@@ -1260,6 +1260,10 @@ pub fn update_legacy_skill(
     snapshot_skill_sources_before_mutation(app, &format!("update-{}", resource.slug))?;
     save_repo_library(&repo_root, &library)?;
     ensure_skill_source(app, &resource.slug, &resource.content)?;
+
+    // Sync update to remote backup
+    let _backup_sync = sync_backup_source_after_mutation(app);
+
     Ok(result)
 }
 
@@ -1283,6 +1287,9 @@ pub fn delete_legacy_skill(app: &tauri::AppHandle, id: &str) -> Result<(), Strin
         snapshot_skill_sources_before_mutation(app, &format!("delete-{}", removed_slug))?;
         remove_path(&source_dir)?;
     }
+
+    // Sync deletion to remote backup
+    let _backup_sync = sync_backup_source_after_mutation(app);
 
     Ok(())
 }
@@ -3528,6 +3535,18 @@ fn skill_sources_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// Get the source directory for a specific skill
 fn skill_source_dir(app: &tauri::AppHandle, slug: &str) -> Result<PathBuf, String> {
     skill_sources_dir(app).map(|dir| dir.join(slug))
+}
+
+/// Get the source directory for a skill by its ID (public, for commands layer)
+pub fn skill_source_dir_by_id(app: &tauri::AppHandle, skill_id: &str) -> Result<PathBuf, String> {
+    let repo_root = connected_repo_root(app)?;
+    let library = load_repo_library(&repo_root)?;
+    let resource = library
+        .resources
+        .iter()
+        .find(|r| r.id == skill_id && r.kind == ResourceKind::Skill)
+        .ok_or_else(|| format!("skill {} not found", skill_id))?;
+    skill_source_dir(app, &resource.slug)
 }
 
 fn validate_standard_skill_directories(directories: &[String]) -> Result<Vec<String>, String> {
