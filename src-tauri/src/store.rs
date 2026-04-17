@@ -1084,6 +1084,9 @@ pub fn create_legacy_skill(
         &input.directories,
     )?;
 
+    // Sync to backup source if configured
+    let _ = backup_source_push(app);
+
     Ok(resource_to_legacy_skill(&resource, &library))
 }
 
