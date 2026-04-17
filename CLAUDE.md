@@ -50,11 +50,14 @@ TypeScript types in `src/types/index.ts` mirror the Rust domain types in `src-ta
 
 ### State Management
 
-React Context providers in `src/context/` manage all state, nested in this order (outer to inner):
+React Context providers manage all state, nested in this order (outer to inner):
 
 ```
 AppProvider → SettingsProvider → ToastProvider → SourceProvider → SkillProvider → ProjectProvider → UpdaterProvider
 ```
+
+- Context files live in `src/context/` (AppContext, SettingsContext, SkillContext, ProjectContext, SourceContext, UpdaterContext)
+- `ToastProvider` is a component-based provider in `src/components/ui/Toast.tsx`
 
 Each context loads data on mount and provides async methods that wrap the service layer.
 
