@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents when working with code in this repository.
 
 ## Project Overview
 
-SkillSwitch is a cross-platform desktop app for managing AI coding assistant "Skills" across multiple tools: Codex, Codex CLI, Gemini CLI, Cursor, and Windsurf. It allows users to install, create, backup, and sync skill files across global and project-level scopes.
+SkillSwitch is a cross-platform desktop app for managing AI coding assistant "Skills" across multiple tools: Claude Code, Codex CLI, Gemini CLI, Cursor, and Windsurf. It allows users to install, create, backup, and sync skill files across global and project-level scopes.
 
 ## Development Commands
 
@@ -30,6 +30,8 @@ cargo clippy --release -- -D warnings
 cargo fmt -- --check          # format check (used in CI)
 ```
 
+**Note**: No test suite is currently configured.
+
 ## Architecture
 
 ### Frontend-Backend Communication
@@ -48,13 +50,18 @@ TypeScript types in `src/types/index.ts` mirror the Rust domain types in `src-ta
 
 ### State Management
 
-React Context providers in `src/context/` manage all state:
+React Context providers manage all state, nested in this order (outer to inner):
 
-- `AppContext` - Global app state, current app selection (Codex/Codex/Gemini/etc.)
+```
+AppProvider → SettingsProvider → ToastProvider → SourceProvider → SkillProvider → ProjectProvider → UpdaterProvider
+```
+
+- `AppContext` - Global app state, current app selection
+- `SettingsContext` - User preferences
+- `ToastProvider` - Component-based provider in `src/components/ui/Toast.tsx`
+- `SourceContext` - Repo source management (sync, updates)
 - `SkillContext` - Skill CRUD operations
 - `ProjectContext` - Project management
-- `SourceContext` - Repo source management (sync, updates)
-- `SettingsContext` - User preferences
 - `UpdaterContext` - App update checking and installation
 
 Each context loads data on mount and provides async methods that wrap the service layer.
@@ -102,14 +109,18 @@ src-tauri/src/
 
 Skills are installed to different paths depending on scope and target app:
 
-- **Global**: `~/.Codex/commands/`, `~/.codex/commands/`, etc.
-- **Project**: `<project>/.Codex/commands/`, `<project>/.codex/commands/`, etc.
+- **Global**: `~/.claude/commands/`, `~/.codex/commands/`, etc.
+- **Project**: `<project>/.claude/commands/`, `<project>/.codex/commands/`, etc.
 
 The backend handles path resolution and file operations. Frontend only specifies `skillId`, `projectPath`, and `apps` list.
 
 ## Runtime Behavior
 
 On app startup, the backend automatically runs `migrate_copied_skills_to_symlinks` to convert any previously copied skill directories into symlinks. This ensures consistent skill management across app versions.
+
+## Git Backup Sync
+
+All skill mutations (create, update, delete, import) automatically push to the configured Git backup source via `sync_backup_source_after_mutation` in `store.rs`. The backup uses temporary shallow clones for push/pull operations.
 
 ## CI/CD
 

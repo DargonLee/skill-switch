@@ -41,7 +41,6 @@ import {
   skillExportToZip,
   skillListDirectory,
   skillReadFile,
-  showInFinder,
   skillShowInFinder,
   formatSkillOperationError,
 } from "../services/skill";
@@ -406,17 +405,6 @@ function DirectoryBrowser({
 
   const handlePathClick = (path: string) => {
     loadDirectory(path);
-  };
-
-  const handleShowInFinder = async () => {
-    if (!listing) return;
-    const targetPath = currentPath
-      ? `${listing.rootPath}/${currentPath}`
-      : listing.rootPath;
-    const result = await showInFinder(targetPath);
-    if (!result.ok) {
-      console.error("Failed to show in finder:", result.error);
-    }
   };
 
   if (loading) {
@@ -1134,12 +1122,13 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
 
   const handleDelete = useCallback(async () => {
     if (selectedSkill) {
+      const tid = toast.loading(`正在卸载「${selectedSkill.name}」…`);
       const success = await remove(selectedSkill.id);
       if (success) {
-        toast.success(`「${selectedSkill.name}」已卸载`);
+        toast.resolve(tid, "success", `「${selectedSkill.name}」已卸载`);
         setSelectedId(skills[0]?.id ?? null);
       } else {
-        toast.error("卸载失败");
+        toast.resolve(tid, "error", "卸载失败");
       }
     }
   }, [selectedSkill, remove, skills, toast]);

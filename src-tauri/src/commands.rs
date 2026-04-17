@@ -264,24 +264,24 @@ pub fn skill_get(
 }
 
 #[tauri::command]
-pub fn skill_create(
+pub async fn skill_create(
     app: tauri::AppHandle,
     input: CreateSkillInput,
 ) -> Result<crate::domain::CreateLegacySkillResult, String> {
-    store::create_legacy_skill(&app, &input)
+    run_blocking_command(move || store::create_legacy_skill(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn skill_update(
+pub async fn skill_update(
     app: tauri::AppHandle,
     input: UpdateSkillInput,
 ) -> Result<crate::domain::LegacySkillDto, String> {
-    store::update_legacy_skill(&app, &input)
+    run_blocking_command(move || store::update_legacy_skill(&app, &input)).await
 }
 
 #[tauri::command]
-pub fn skill_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    store::delete_legacy_skill(&app, &id)
+pub async fn skill_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    run_blocking_command(move || store::delete_legacy_skill(&app, &id)).await
 }
 
 #[tauri::command]
