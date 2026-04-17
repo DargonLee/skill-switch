@@ -113,6 +113,7 @@ export function AppShell({ activePage, activeRepoId, activeLibraryTab, externalA
   const [showAddModal, setShowAddModal] = useState(false);
   const [repoSyncing, setRepoSyncing] = useState<string | null>(null);
   const [repoDeleting, setRepoDeleting] = useState<string | null>(null);
+  const [externalExpanded, setExternalExpanded] = useState(false);
 
   const repos: ThirdPartyRepo[] = settings.thirdPartyRepos ?? [];
   const backupSource = settings.backupSource;
@@ -269,7 +270,15 @@ export function AppShell({ activePage, activeRepoId, activeLibraryTab, externalA
     [externalSkills],
   );
 
-  const isExternalExpanded = activePage === "my-library" && activeLibraryTab === "external";
+  useEffect(() => {
+    if (activePage === "my-library" && activeLibraryTab === "external" && externalAppFilter) {
+      setExternalExpanded(true);
+    }
+  }, [activeLibraryTab, activePage, externalAppFilter]);
+
+  const isExternalExpanded = externalExpanded
+    || (activePage === "my-library" && activeLibraryTab === "external" && !!externalAppFilter);
+  const isExternalActive = activePage === "my-library" && activeLibraryTab === "external";
 
   const backupSourceBadge = !backupSource
     ? "未配置"
@@ -316,8 +325,8 @@ export function AppShell({ activePage, activeRepoId, activeLibraryTab, externalA
 
               {/* 外部 — collapsible with per-CLI sub-items */}
               <button
-                className={`${s.libraryItem} ${isExternalExpanded ? s.libraryItemActive : ""}`}
-                onClick={() => onNavigateLibraryTab("external")}
+                className={`${s.libraryItem} ${isExternalActive || isExternalExpanded ? s.libraryItemActive : ""}`}
+                onClick={() => setExternalExpanded((prev) => !prev)}
               >
                 <ExternalLink size={12} className={s.libraryItemIcon} />
                 <span className={s.backupNameWrap}>

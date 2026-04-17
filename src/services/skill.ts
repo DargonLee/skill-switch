@@ -198,6 +198,14 @@ export async function skillImportFromFolder(
 }
 
 /**
+ * Open the native picker and import either a skill folder, SKILL.md, or a zip package.
+ * Maps to backend: skill_import_from_dialog() -> Option<LegacySkillDto>
+ */
+export async function skillImportFromDialog(): Promise<Result<Skill | null>> {
+  return tauriInvoke<Skill | null>("skill_import_from_dialog");
+}
+
+/**
  * Import a skill from a zip file
  * Maps to backend: skill_import_from_zip(zip_path) -> LegacySkillDto
  */

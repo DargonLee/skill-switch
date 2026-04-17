@@ -82,6 +82,11 @@ src-tauri/src/
 └── updater.rs     # App self-update functionality
 ```
 
+### Data Loading
+
+- **skill-sources folder**: Located in the app's data directory. On startup, the app loads skills from this folder and syncs with displayed data sources. Folder changes should be reflected in the UI at startup.
+- **Startup sync**: `migrate_copied_skills_to_symlinks` runs automatically on startup to ensure consistent skill management.
+
 ## Key Patterns
 
 ### Adding a New Backend Command

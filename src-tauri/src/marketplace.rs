@@ -4,13 +4,18 @@ use std::sync::OnceLock;
 
 use tauri::Manager;
 
-use crate::domain::{ImportMarketSkillInput, MarketplaceFeedPage, MarketplaceSkillFeedItem, MarketplaceFeedInput, LegacySkillDto};
+use crate::domain::{
+    ImportMarketSkillInput, LegacySkillDto, MarketplaceFeedInput, MarketplaceFeedPage,
+    MarketplaceSkillFeedItem,
+};
 
 /// Cached marketplace data
 static MARKETPLACE_CACHE: OnceLock<Vec<MarketplaceSkillFeedItem>> = OnceLock::new();
 
 /// Load the marketplace data from file (cached)
-fn load_marketplace_data(app: &tauri::AppHandle) -> Result<&'static Vec<MarketplaceSkillFeedItem>, String> {
+fn load_marketplace_data(
+    app: &tauri::AppHandle,
+) -> Result<&'static Vec<MarketplaceSkillFeedItem>, String> {
     if let Some(cached) = MARKETPLACE_CACHE.get() {
         return Ok(cached);
     }
@@ -19,7 +24,8 @@ fn load_marketplace_data(app: &tauri::AppHandle) -> Result<&'static Vec<Marketpl
     let paths_to_try = vec![
         // Development: try the public directory relative to the project
         {
-            let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+            let manifest_dir =
+                std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
             PathBuf::from(manifest_dir)
                 .parent()
                 .map(|p| p.join("public").join("data").join("marketplace.json"))
@@ -38,8 +44,13 @@ fn load_marketplace_data(app: &tauri::AppHandle) -> Result<&'static Vec<Marketpl
 
     for path in paths_to_try.into_iter().flatten() {
         if path.exists() {
-            let content = fs::read_to_string(&path)
-                .map_err(|e| format!("Failed to read marketplace feed at {}: {}", path.display(), e))?;
+            let content = fs::read_to_string(&path).map_err(|e| {
+                format!(
+                    "Failed to read marketplace feed at {}: {}",
+                    path.display(),
+                    e
+                )
+            })?;
 
             let items: Vec<MarketplaceSkillFeedItem> = serde_json::from_str(&content)
                 .map_err(|e| format!("Failed to parse marketplace feed: {}", e))?;
@@ -57,7 +68,10 @@ fn load_marketplace_data(app: &tauri::AppHandle) -> Result<&'static Vec<Marketpl
         }
     }
 
-    Err("Marketplace feed not found. Please ensure public/data/marketplace.json exists.".to_string())
+    Err(
+        "Marketplace feed not found. Please ensure public/data/marketplace.json exists."
+            .to_string(),
+    )
 }
 
 /// Load marketplace feed with pagination and optional search
@@ -79,7 +93,10 @@ pub fn load_marketplace_feed(
                 item.name.to_lowercase().contains(&search_lower)
                     || item.description.to_lowercase().contains(&search_lower)
                     || item.author.to_lowercase().contains(&search_lower)
-                    || item.description_cn.as_ref().is_some_and(|d| d.to_lowercase().contains(&search_lower))
+                    || item
+                        .description_cn
+                        .as_ref()
+                        .is_some_and(|d| d.to_lowercase().contains(&search_lower))
             })
             .collect()
     } else {
@@ -110,7 +127,8 @@ pub fn load_marketplace_feed(
 /// Example: https://github.com/owner/repo/tree/branch/path/to/skill
 fn parse_github_tree_url(url: &str) -> Option<(String, String)> {
     let url = url.trim();
-    let url = url.strip_prefix("https://github.com/")
+    let url = url
+        .strip_prefix("https://github.com/")
         .or_else(|| url.strip_prefix("http://github.com/"))?;
 
     let parts: Vec<&str> = url.split('/').collect();
@@ -167,8 +185,7 @@ pub fn import_skill_from_market(
         "skill-switch-market-{}",
         chrono::Utc::now().timestamp_millis()
     ));
-    fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+    fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp directory: {}", e))?;
 
     // Track if we found a SKILL.md file
     let mut found_skill_md = false;
@@ -184,7 +201,9 @@ pub fn import_skill_from_market(
 
         // The item_path is relative to the repo root, but we only want files within skill_path
         // Extract the relative path within the skill directory
-        let relative_path = item_path.strip_prefix(&input.skill_path).unwrap_or(item_path);
+        let relative_path = item_path
+            .strip_prefix(&input.skill_path)
+            .unwrap_or(item_path);
         if relative_path.is_empty() || relative_path.starts_with('/') {
             continue;
         }
@@ -219,11 +238,9 @@ pub fn import_skill_from_market(
         // Create the directory structure and save the file
         let local_path = temp_dir.join(relative_path);
         if let Some(parent) = local_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create directory: {}", e))?;
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
         }
-        fs::write(&local_path, file_content)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
+        fs::write(&local_path, file_content).map_err(|e| format!("Failed to write file: {}", e))?;
     }
 
     if !found_skill_md {

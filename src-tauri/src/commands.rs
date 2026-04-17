@@ -473,6 +473,13 @@ pub fn skill_import_from_folder(
 }
 
 #[tauri::command]
+pub fn skill_import_from_dialog(
+    app: tauri::AppHandle,
+) -> Result<Option<crate::domain::LegacySkillDto>, String> {
+    store::import_skill_from_dialog(&app)
+}
+
+#[tauri::command]
 pub fn skill_import_from_zip(
     app: tauri::AppHandle,
     zip_path: String,

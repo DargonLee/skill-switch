@@ -4,14 +4,15 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::process::Command;
 use tauri::Manager;
 use uuid::Uuid;
 
 use crate::domain::{
-    AppSettings, BackupSourceConfig, BackupSourceStatus, BackupSyncResult,
-    CheckSymlinkStatusInput, CheckSymlinkStatusResult, CreateLegacySkillResult,
-    CreateProjectInput, CreateSkillInput, InstallRecord,
-    InstallSkillGlobalInput, InstallSkillGlobalResult, InstallSkillToProjectInput,
+    AppSettings, BackupSourceConfig, BackupSourceStatus, BackupSyncResult, CheckSymlinkStatusInput,
+    CheckSymlinkStatusResult, CreateLegacySkillResult, CreateProjectInput, CreateSkillInput,
+    InstallRecord, InstallSkillGlobalInput, InstallSkillGlobalResult, InstallSkillToProjectInput,
     InstallSkillToProjectResult, InstallStatus, InstallTarget, InstallTargetKind, LegacyProjectDto,
     LegacySkillDto, LocalProjectBinding, LocalState, PreviewDecisionAction, PreviewPlan,
     PreviewPlanKind, ProjectFileEntry, ProjectFileStatus, ProjectPreviewInput, ProjectProfile,
@@ -102,8 +103,7 @@ fn app_cli_dir_aliases(app_id: &str) -> Option<&'static [&'static str]> {
 }
 
 fn app_cli_dirs(base_path: &Path, app_id: &str) -> Result<Vec<PathBuf>, String> {
-    let aliases =
-        app_cli_dir_aliases(app_id).ok_or_else(|| format!("未知的应用: {}", app_id))?;
+    let aliases = app_cli_dir_aliases(app_id).ok_or_else(|| format!("未知的应用: {}", app_id))?;
     Ok(aliases.iter().map(|alias| base_path.join(alias)).collect())
 }
 
@@ -571,7 +571,10 @@ fn dedupe_managed_skill_resources(library: &mut RepoLibrary) -> HashMap<String, 
     for indexes in grouped_indexes.values().filter(|indexes| indexes.len() > 1) {
         let mut canonical_index = indexes[0];
         for &index in indexes.iter().skip(1) {
-            if should_prefer_skill_resource(&library.resources[index], &library.resources[canonical_index]) {
+            if should_prefer_skill_resource(
+                &library.resources[index],
+                &library.resources[canonical_index],
+            ) {
                 canonical_index = index;
             }
         }
@@ -672,10 +675,7 @@ fn load_repo_library_for_legacy_skills(
 
 fn is_backup_eligible_skill_resource(resource: &Resource) -> bool {
     is_managed_skill_resource(resource)
-        && !resource
-            .tags
-            .iter()
-            .any(|tag| tag.starts_with("_remote:"))
+        && !resource.tags.iter().any(|tag| tag.starts_with("_remote:"))
 }
 
 fn parse_skill_front_matter(content: &str) -> (Option<String>, Option<String>, Vec<String>) {
@@ -994,7 +994,9 @@ fn sync_backup_eligible_skills_from_backup_repo(
         .collect::<HashSet<_>>();
 
     if !removed_ids.is_empty() {
-        library.resources.retain(|resource| !removed_ids.contains(&resource.id));
+        library
+            .resources
+            .retain(|resource| !removed_ids.contains(&resource.id));
         for resource_id in &removed_ids {
             detach_resource_from_all_profiles(&mut library.project_profiles, resource_id);
         }
@@ -1016,7 +1018,9 @@ fn sync_backup_eligible_skills_from_backup_repo(
     Ok(())
 }
 
-fn detach_backup_git_metadata_from_live_skill_sources(app: &tauri::AppHandle) -> Result<Vec<String>, String> {
+fn detach_backup_git_metadata_from_live_skill_sources(
+    app: &tauri::AppHandle,
+) -> Result<Vec<String>, String> {
     let source_root = skill_sources_dir(app)?;
     if !source_root.exists() {
         return Ok(Vec::new());
@@ -4130,8 +4134,7 @@ pub fn skill_sources_to_library_sync(app: &tauri::AppHandle) -> Result<(), Strin
 
         let content = fs::read_to_string(&skill_file).map_err(|e| e.to_string())?;
         let revision = compute_revision(&content);
-        let (name, description, tags) =
-            derive_skill_source_metadata(&slug, &content, None);
+        let (name, description, tags) = derive_skill_source_metadata(&slug, &content, None);
 
         if let Some(index) = existing_by_slug.get(&slug).copied() {
             // Update existing skill
@@ -4328,6 +4331,128 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn pick_skill_import_path(_app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    let script = r#"
+ObjC.import('AppKit');
+const panel = $.NSOpenPanel.openPanel;
+panel.setCanChooseFiles(true);
+panel.setCanChooseDirectories(true);
+panel.setAllowsMultipleSelection(false);
+panel.setCanCreateDirectories(false);
+panel.setResolvesAliases(true);
+panel.setTitle('选择 Skill 文件夹或 ZIP 包');
+panel.setPrompt('导入');
+
+if (panel.runModal() === $.NSModalResponseOK) {
+  const url = panel.URL;
+  if (url) {
+    console.log(ObjC.unwrap(url.path));
+  }
+}
+"#;
+
+    let output = Command::new("osascript")
+        .args(["-l", "JavaScript", "-e", script])
+        .output()
+        .map_err(|error| format!("打开导入选择器失败：{}", error))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            return Ok(None);
+        }
+        return Err(format!("打开导入选择器失败：{}", stderr));
+    }
+
+    let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if selected.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(PathBuf::from(selected)))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pick_skill_import_path(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    if let Some(folder) = app
+        .dialog()
+        .file()
+        .set_title("选择 Skill 文件夹")
+        .blocking_pick_folder()
+    {
+        return folder
+            .into_path()
+            .map(Some)
+            .map_err(|error| format!("读取目录路径失败：{}", error));
+    }
+
+    if let Some(file) = app
+        .dialog()
+        .file()
+        .add_filter("Skill Import", &["zip", "md"])
+        .set_title("选择 SKILL.md 或 ZIP 包")
+        .blocking_pick_file()
+    {
+        return file
+            .into_path()
+            .map(Some)
+            .map_err(|error| format!("读取文件路径失败：{}", error));
+    }
+
+    Ok(None)
+}
+
+pub fn import_skill_from_path(
+    app: &tauri::AppHandle,
+    selected_path: &Path,
+) -> Result<LegacySkillDto, String> {
+    if !selected_path.exists() {
+        return Err("选择的路径不存在".to_string());
+    }
+
+    if selected_path.is_dir() {
+        return import_skill_from_folder(app, selected_path);
+    }
+
+    if !selected_path.is_file() {
+        return Err("选择的内容既不是文件夹也不是文件".to_string());
+    }
+
+    let file_name = selected_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+
+    if file_name.eq_ignore_ascii_case("SKILL.md") {
+        let parent = selected_path
+            .parent()
+            .ok_or_else(|| "无法识别 SKILL.md 所在目录".to_string())?;
+        return import_skill_from_folder(app, parent);
+    }
+
+    let extension = selected_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+
+    if extension.eq_ignore_ascii_case("zip") {
+        return import_skill_from_zip(app, selected_path);
+    }
+
+    Err("请选择包含 SKILL.md 的文件夹、SKILL.md 文件或 ZIP 包".to_string())
+}
+
+pub fn import_skill_from_dialog(app: &tauri::AppHandle) -> Result<Option<LegacySkillDto>, String> {
+    let Some(path) = pick_skill_import_path(app)? else {
+        return Ok(None);
+    };
+
+    import_skill_from_path(app, &path).map(Some)
 }
 
 /// Import a skill from a folder containing SKILL.md
@@ -4548,10 +4673,10 @@ fn parse_skill_metadata(content: &str) -> (String, Option<String>) {
 
     if !desc_lines.is_empty() {
         description = Some(desc_lines.join(" "));
-        // Truncate description if too long
+        // Truncate description if too long (using character count, not bytes)
         if let Some(ref desc) = description {
-            if desc.len() > 200 {
-                description = Some(format!("{}...", &desc[..197]));
+            if desc.chars().count() > 200 {
+                description = Some(format!("{}...", desc.chars().take(197).collect::<String>()));
             }
         }
     }
@@ -4878,11 +5003,9 @@ mod tests {
 
     #[test]
     fn rejects_invalid_standard_skill_directory() {
-        let error = validate_standard_skill_directories(&[
-            "scripts".to_string(),
-            "agents".to_string(),
-        ])
-        .expect_err("invalid directory should fail validation");
+        let error =
+            validate_standard_skill_directories(&["scripts".to_string(), "agents".to_string()])
+                .expect_err("invalid directory should fail validation");
 
         assert!(error.contains("agents"));
     }
@@ -4926,8 +5049,7 @@ mod tests {
 
         let file = fs::File::create(&zip_path).expect("zip file should be created");
         let mut zip = ZipWriter::new(file);
-        let options =
-            SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
         write_directory_to_zip(&mut zip, &skill_root, &skill_root, options)
             .expect("zip helper should succeed");

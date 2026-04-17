@@ -599,11 +599,11 @@ pub struct InstallSkillGlobalResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillSymlinkStatus {
-    pub app_id: String,   // "claude", "codex", "cursor"
-    pub is_symlink: bool, // true if installed as symlink
-    pub is_broken: bool,  // true if symlink target doesn't exist
+    pub app_id: String,              // "claude", "codex", "cursor"
+    pub is_symlink: bool,            // true if installed as symlink
+    pub is_broken: bool,             // true if symlink target doesn't exist
     pub target_path: Option<String>, // the symlink target path, if it's a symlink
-    pub exists: bool,     // true if some installation exists (symlink or directory)
+    pub exists: bool,                // true if some installation exists (symlink or directory)
 }
 
 /// Input for checking symlink status of a skill

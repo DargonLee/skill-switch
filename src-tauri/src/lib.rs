@@ -14,15 +14,16 @@ use commands::{
     capture_project_changes, check_install_updates, check_source_updates, marketplace_load_feed,
     preview_capture_project_changes, preview_environment_restore, preview_project_apply,
     preview_source_update, project_binding_list, project_create, project_delete, project_list,
-    project_profile_list, project_remove_cli_folders, project_update, repo_connect, repo_preflight,
-    repo_pull, repo_push, repo_source_delete, repo_source_list_skills, repo_source_sync,
-    repo_status, repo_sync, resource_list, scan_external_skills, scan_global_environment,
-    scan_project_state, settings_get, settings_set, show_in_finder, skill_check_symlink_status,
-    skill_create, skill_delete, skill_export_to_zip, skill_get, skill_import_from_folder,
+    project_profile_list, project_remove_cli_folders, project_update, registry_fetch_content,
+    registry_install, registry_search, repo_connect, repo_preflight, repo_pull, repo_push,
+    repo_source_delete, repo_source_list_skills, repo_source_sync, repo_status, repo_sync,
+    resource_list, scan_external_skills, scan_global_environment, scan_project_state, settings_get,
+    settings_set, show_in_finder, skill_check_symlink_status, skill_create, skill_delete,
+    skill_export_to_zip, skill_get, skill_import_from_dialog, skill_import_from_folder,
     skill_import_from_market, skill_import_from_zip, skill_install_global,
     skill_install_to_project, skill_list, skill_list_directory, skill_migrate_to_symlinks,
     skill_read_file, skill_repair_broken_symlinks, skill_search, skill_uninstall_from_project,
-    skill_uninstall_global, skill_update, registry_search, registry_fetch_content, registry_install,
+    skill_uninstall_global, skill_update,
 };
 use updater::{check_app_update, download_and_install_update, get_current_version};
 
@@ -45,31 +46,29 @@ pub fn run() {
                 }
             }
 
-            // Sync skills from skill-sources to library on startup
-            std::thread::spawn(move || {
-                match store::skill_sources_to_library_sync(&handle) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        println!("[SkillSwitch] skill-sources sync failed: {}", e);
+            // Sync skills from skill-sources to library on startup (synchronous to ensure data is ready before frontend loads)
+            match store::skill_sources_to_library_sync(&handle) {
+                Ok(_) => {}
+                Err(e) => {
+                    println!("[SkillSwitch] skill-sources sync failed: {}", e);
+                }
+            }
+            // Run migration after sync
+            match store::migrate_copied_skills_to_symlinks(&handle) {
+                Ok(result) => {
+                    if result.migrated_count > 0 || !result.errors.is_empty() {
+                        println!(
+                            "[SkillSwitch] Migration complete: {} migrated, {} skipped, {} errors",
+                            result.migrated_count,
+                            result.skipped_count,
+                            result.errors.len()
+                        );
                     }
                 }
-                // Run migration after sync
-                match store::migrate_copied_skills_to_symlinks(&handle) {
-                    Ok(result) => {
-                        if result.migrated_count > 0 || !result.errors.is_empty() {
-                            println!(
-                                "[SkillSwitch] Migration complete: {} migrated, {} skipped, {} errors",
-                                result.migrated_count,
-                                result.skipped_count,
-                                result.errors.len()
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        println!("[SkillSwitch] Migration failed: {}", e);
-                    }
+                Err(e) => {
+                    println!("[SkillSwitch] Migration failed: {}", e);
                 }
-            });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -112,6 +111,7 @@ pub fn run() {
             skill_check_symlink_status,
             skill_repair_broken_symlinks,
             skill_migrate_to_symlinks,
+            skill_import_from_dialog,
             skill_import_from_folder,
             skill_import_from_zip,
             skill_export_to_zip,

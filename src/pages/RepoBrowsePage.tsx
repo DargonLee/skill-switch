@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   Search, Check, Download, RefreshCw,
-  Loader, AlertTriangle, Globe, Sparkles, Database,
+  Loader, AlertTriangle, Globe, Sparkles, Database, X,
 } from "lucide-react";
 import { useSkills } from "../context/SkillContext";
 import { useSource } from "../context/SourceContext";
@@ -16,6 +16,7 @@ import {
 import { repoSourceNeedsSync, repoSourceSync } from "../services/repoSource";
 import { formatSkillOperationError } from "../services/skill";
 import type { RemoteSkill } from "../types";
+import modalStyles from "../components/layout/AppShell.module.css";
 import s from "./RepoBrowsePage.module.css";
 
 const CATEGORIES = ["全部", "Git & CI/CD", "调试", "安全", "数据库", "AI / LLM", "已安装", "未安装"];
@@ -76,15 +77,53 @@ interface MarketSkill extends RemoteSkill {
   author?: string;
 }
 
-function SkillCard({ skill, isInstalled, isInstalling, onInstall }: {
-  skill: MarketSkill; isInstalled: boolean; isInstalling: boolean; onInstall: () => void;
+function stripFrontMatter(markdown: string): string {
+  const normalized = markdown.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
+    return normalized;
+  }
+
+  const boundary = normalized.indexOf("\n---\n", 4);
+  if (boundary === -1) {
+    return normalized;
+  }
+
+  return normalized.slice(boundary + 5).trim();
+}
+
+function buildPreviewSummary(skill: MarketSkill, content: string): string {
+  const fallback = skill.description || "暂无描述";
+  if (!content.trim()) {
+    return fallback;
+  }
+
+  const paragraphs = stripFrontMatter(content)
+    .split(/\n\s*\n/)
+    .map((section) => section.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((section) => !section.startsWith("#"))
+    .filter((section) => !section.startsWith("```"));
+
+  return paragraphs[0] ?? fallback;
+}
+
+function SkillCard({ skill, isInstalled, isInstalling, onInstall, onPreview }: {
+  skill: MarketSkill;
+  isInstalled: boolean;
+  isInstalling: boolean;
+  onInstall: () => void;
+  onPreview?: () => void;
 }) {
   const category = inferCategory(skill.tags);
   const iconColors = getIconColors(skill.name);
   const initial = skill.name.charAt(0).toUpperCase();
+  const previewable = typeof onPreview === "function";
 
   return (
-    <div className={s.card}>
+    <div
+      className={`${s.card} ${previewable ? s.cardPreviewable : ""}`}
+      onClick={onPreview}
+    >
       <div className={s.cardContent}>
         <div className={s.cardIcon} style={{ background: iconColors.bg, color: iconColors.fg }}>
           <span>{initial}</span>
@@ -109,12 +148,16 @@ function SkillCard({ skill, isInstalled, isInstalling, onInstall }: {
             {skill.stars != null && (
               <span className={s.cardStars}>★ {skill.stars.toLocaleString()}</span>
             )}
+            {previewable && <span className={s.cardPreviewHint}>点击预览</span>}
           </div>
         </div>
 
         <button
           className={`${s.cardBtn} ${isInstalled ? s.cardBtnDone : ""}`}
-          onClick={onInstall}
+          onClick={(event) => {
+            event.stopPropagation();
+            onInstall();
+          }}
           disabled={isInstalling || isInstalled}
           title={isInstalled ? "已安装" : "安装"}
         >
@@ -185,6 +228,92 @@ function SkeletonCard() {
   );
 }
 
+function MarketPreviewModal({
+  skill,
+  content,
+  status,
+  error,
+  isInstalled,
+  isInstalling,
+  onClose,
+  onInstall,
+}: {
+  skill: MarketSkill;
+  content: string;
+  status: "loading" | "success" | "error";
+  error: string | null;
+  isInstalled: boolean;
+  isInstalling: boolean;
+  onClose: () => void;
+  onInstall: () => void;
+}) {
+  const summary = buildPreviewSummary(skill, content);
+
+  return (
+    <div className={modalStyles.modalOverlay} onClick={onClose}>
+      <div
+        className={`${modalStyles.modal} ${s.previewModal}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className={modalStyles.modalHeader}>
+          <div className={s.previewHeaderMain}>
+            <span className={modalStyles.modalTitle}>{skill.name}</span>
+            <span className={s.previewHeaderMeta}>
+              {skill.author ? `${skill.author} · ` : ""}
+              {skill.stars != null ? `${skill.stars.toLocaleString()} stars` : "技能市场"}
+            </span>
+          </div>
+          <button className={modalStyles.modalClose} onClick={onClose}>
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className={`${modalStyles.modalBody} ${s.previewBody}`}>
+          <div className={s.previewSummaryCard}>
+            <div className={s.previewSectionLabel}>这个 Skill 是做什么的</div>
+            <div className={s.previewSummaryText}>{summary}</div>
+            <div className={s.previewMetaRow}>
+              {skill.skillPath && <span className={s.previewMetaChip}>{skill.skillPath}</span>}
+              {skill.branch && <span className={s.previewMetaChip}>分支 {skill.branch}</span>}
+              <span className={s.previewMetaChip}>{inferCategory(skill.tags)}</span>
+            </div>
+          </div>
+
+          <div className={s.previewSection}>
+            <div className={s.previewSectionTitle}>SKILL.md 预览</div>
+            {status === "loading" ? (
+              <div className={s.previewLoading}>
+                <Loader size={16} className={s.spin} />
+                <span>正在读取 SKILL.md...</span>
+              </div>
+            ) : status === "error" ? (
+              <div className={s.previewErrorBox}>
+                <AlertTriangle size={16} />
+                <span>{error || "读取 SKILL.md 失败"}</span>
+              </div>
+            ) : (
+              <pre className={s.previewContent}>{content}</pre>
+            )}
+          </div>
+
+          <div className={s.previewActions}>
+            <button className={s.previewCloseBtn} onClick={onClose}>
+              关闭
+            </button>
+            <button
+              className={`${s.previewInstallBtn} ${isInstalled ? s.previewInstallBtnDone : ""}`}
+              onClick={onInstall}
+              disabled={isInstalling || isInstalled}
+            >
+              {isInstalling ? <><Loader size={14} className={s.spin} /> 安装中</> : isInstalled ? <><Check size={14} /> 已安装</> : <><Download size={14} /> 安装到我的库</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function RepoBrowsePage({ repoId }: { repoId: string }) {
   const { skills: installedSkills, create } = useSkills();
   const { sourceStates, marketState, registryState, searchRegistry, refresh, loadMoreMarket, searchMarket, isMarketSource, isRegistrySource } = useSource();
@@ -195,8 +324,13 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
   const [installing, setInstalling] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [previewSkill, setPreviewSkill] = useState<MarketSkill | null>(null);
+  const [previewContent, setPreviewContent] = useState("");
+  const [previewStatus, setPreviewStatus] = useState<"loading" | "success" | "error">("loading");
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const previewRequestRef = useRef(0);
 
   const state = sourceStates.get(repoId);
   const installedNames = useMemo(
@@ -300,6 +434,57 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
     }
   }, [create, installedNames, isBackup, isMarket, repoId]);
 
+  const handlePreview = useCallback(async (skill: MarketSkill) => {
+    const requestId = previewRequestRef.current + 1;
+    previewRequestRef.current = requestId;
+
+    setPreviewSkill(skill);
+    setPreviewError(null);
+
+    if (skill.content.trim()) {
+      setPreviewContent(skill.content);
+      setPreviewStatus("success");
+      return;
+    }
+
+    setPreviewContent("");
+    setPreviewStatus("loading");
+
+    try {
+      const response = await fetch(skill.rawUrl, {
+        headers: { Accept: "text/plain" },
+      });
+
+      if (!response.ok) {
+        throw new Error(`读取失败（${response.status}）`);
+      }
+
+      const content = await response.text();
+      if (previewRequestRef.current !== requestId) {
+        return;
+      }
+
+      setPreviewContent(content);
+      setPreviewStatus("success");
+    } catch (error) {
+      if (previewRequestRef.current !== requestId) {
+        return;
+      }
+
+      setPreviewContent("");
+      setPreviewStatus("error");
+      setPreviewError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const handleClosePreview = useCallback(() => {
+    previewRequestRef.current += 1;
+    setPreviewSkill(null);
+    setPreviewContent("");
+    setPreviewError(null);
+    setPreviewStatus("loading");
+  }, []);
+
   const handleSync = useCallback(async () => {
     if (isMarket) {
       refresh(repoId);
@@ -399,6 +584,7 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
   const needsSync = !isMarket && !isRegistry && repoSourceNeedsSync(state?.error);
   const repoLabel = isMarket ? "技能市场" : isRegistry ? "在线搜索" : (state?.skills[0]?.repoLabel ?? repoId);
   const repoUrl = (isMarket || isRegistry) ? "" : (state?.skills[0]?.repoUrl ?? "");
+  const previewInstalled = previewSkill ? installedNames.has(previewSkill.name.toLowerCase()) : false;
 
   // Check if we hit the item limit
   const hitLimit = isMarket && rawSkills.length >= MAX_MARKET_ITEMS;
@@ -517,7 +703,8 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
                 <SkillCard key={sk.id} skill={sk as MarketSkill}
                   isInstalled={installedNames.has(sk.name.toLowerCase())}
                   isInstalling={installing === sk.id}
-                  onInstall={() => handleInstall(sk as MarketSkill)} />
+                  onInstall={() => handleInstall(sk as MarketSkill)}
+                  onPreview={isMarket ? () => void handlePreview(sk as MarketSkill) : undefined} />
               ))}
             </div>
             {/* Load more trigger or limit message */}
@@ -539,6 +726,19 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
           </>
         )}
       </div>
+
+      {previewSkill && (
+        <MarketPreviewModal
+          skill={previewSkill}
+          content={previewContent}
+          status={previewStatus}
+          error={previewError}
+          isInstalled={previewInstalled}
+          isInstalling={installing === previewSkill.id}
+          onClose={handleClosePreview}
+          onInstall={() => void handleInstall(previewSkill)}
+        />
+      )}
 
       {toast && <div className={s.toast}>{toast}</div>}
     </div>

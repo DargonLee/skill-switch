@@ -13,7 +13,6 @@ import {
   Plus,
   Check,
   AlertTriangle,
-  FileArchive,
   FolderOpen,
   Loader,
   FileUp,
@@ -37,8 +36,8 @@ import {
   projectRemoveCliFolders,
   skillInstallGlobal,
   skillUninstallGlobal,
+  skillImportFromDialog,
   skillImportFromFolder,
-  skillImportFromZip,
   skillExportToZip,
   skillListDirectory,
   skillReadFile,
@@ -1077,54 +1076,6 @@ function LoadingSkeleton() {
 }
 
 // ── Import Modal ────────────────────────────────────────────────────────────
-function ImportModal({
-  onClose,
-  onImportFolder,
-  onImportZip,
-}: {
-  onClose: () => void;
-  onImportFolder: () => void;
-  onImportZip: () => void;
-}) {
-  return (
-    <div className={modalStyles.modalOverlay} onClick={onClose}>
-      <div className={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
-        <div className={modalStyles.modalHeader}>
-          <span className={modalStyles.modalTitle}>导入 Skill</span>
-          <button className={modalStyles.modalClose} onClick={onClose}>
-            <X size={14} />
-          </button>
-        </div>
-        <div className={modalStyles.modalBody}>
-          <div className={s.importOptions}>
-            <button className={s.importOption} onClick={onImportFolder}>
-              <div className={s.importOptionIcon}>
-                <FolderOpen size={24} />
-              </div>
-              <div className={s.importOptionText}>
-                <div className={s.importOptionTitle}>导入文件夹</div>
-                <div className={s.importOptionDesc}>选择包含 SKILL.md 的文件夹</div>
-              </div>
-            </button>
-            <button className={s.importOption} onClick={onImportZip}>
-              <div className={s.importOptionIcon}>
-                <FileArchive size={24} />
-              </div>
-              <div className={s.importOptionText}>
-                <div className={s.importOptionTitle}>导入 ZIP 包</div>
-                <div className={s.importOptionDesc}>选择包含 Skill 文件夹的 ZIP 压缩包</div>
-              </div>
-            </button>
-          </div>
-          <div className={modalStyles.modalHint}>
-            Skill 文件夹必须包含 SKILL.md 文件才能被正确识别
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Main InstalledPage ───────────────────────────────────────────────────────
 export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter }: {
   onNavigate: (page: import("../App").PageId) => void;
@@ -1137,7 +1088,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showImportModal, setShowImportModal] = useState(false);
   const [importing, setImporting] = useState(false);
   const [externalImportPreview, setExternalImportPreview] = useState<ExternalImportPreviewState | null>(null);
   const [loadingExternalPreview, setLoadingExternalPreview] = useState(false);
@@ -1211,64 +1161,36 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
     }
   }, [selectedSkill, toast]);
 
-  // Import handlers
-  const handleImportFolder = useCallback(async () => {
-    setShowImportModal(false);
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "选择 Skill 文件夹",
-      });
-      if (!selected) return;
-
-      setImporting(true);
-      const tid = toast.loading("正在导入 Skill...");
-
-      const result = await skillImportFromFolder(selected as string);
-      setImporting(false);
-
-      if (result.ok) {
-        toast.resolve(tid, "success", `「${result.value.name}」导入成功`);
-        refresh();
-        setSelectedId(result.value.id);
-      } else {
-        toast.resolve(tid, "error", result.error);
-      }
-    } catch (e) {
-      setImporting(false);
-      toast.error(`导入失败：${e}`);
+  const handleImport = useCallback(async () => {
+    if (importing) {
+      return;
     }
-  }, [refresh, toast]);
 
-  const handleImportZip = useCallback(async () => {
-    setShowImportModal(false);
+    setImporting(true);
+    const tid = toast.loading("请选择 Skill 文件夹或 ZIP 包...");
+
     try {
-      const selected = await open({
-        multiple: false,
-        filters: [{ name: "ZIP", extensions: ["zip"] }],
-        title: "选择 Skill ZIP 包",
-      });
-      if (!selected) return;
+      const result = await skillImportFromDialog();
 
-      setImporting(true);
-      const tid = toast.loading("正在解压并导入 Skill...");
-
-      const result = await skillImportFromZip(selected as string);
-      setImporting(false);
-
-      if (result.ok) {
-        toast.resolve(tid, "success", `「${result.value.name}」导入成功`);
-        refresh();
-        setSelectedId(result.value.id);
-      } else {
+      if (!result.ok) {
         toast.resolve(tid, "error", result.error);
+        return;
       }
-    } catch (e) {
+
+      if (!result.value) {
+        toast.dismiss(tid);
+        return;
+      }
+
+      toast.resolve(tid, "success", `「${result.value.name}」导入成功`);
+      await refresh();
+      setSelectedId(result.value.id);
+    } catch (error) {
+      toast.resolve(tid, "error", `导入失败：${String(error)}`);
+    } finally {
       setImporting(false);
-      toast.error(`导入失败：${e}`);
     }
-  }, [refresh, toast]);
+  }, [importing, refresh, toast]);
 
   // Import external skill from app directory
   const handleImportExternal = useCallback(async (skill: ExternalSkill) => {
@@ -1371,6 +1293,30 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
     }
   }, [activeLibraryTab, activeManagedSkills, selectedId]);
 
+  useEffect(() => {
+    if (activeLibraryTab !== "external" || !externalAppFilter) {
+      if (selectedExternalKey !== null) {
+        setSelectedExternalKey(null);
+      }
+      return;
+    }
+
+    if (filteredExternal.length === 0) {
+      if (selectedExternalKey !== null) {
+        setSelectedExternalKey(null);
+      }
+      return;
+    }
+
+    const selectedStillVisible = filteredExternal.some(
+      (skill) => `${skill.appId}:${skill.slug}` === selectedExternalKey
+    );
+
+    if (!selectedStillVisible) {
+      setSelectedExternalKey(`${filteredExternal[0].appId}:${filteredExternal[0].slug}`);
+    }
+  }, [activeLibraryTab, externalAppFilter, filteredExternal, selectedExternalKey]);
+
   const toggleGroup = useCallback((groupKey: string) => {
     setCollapsedGroups((prev) => ({
       ...prev,
@@ -1432,14 +1378,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
     return ordered;
   })();
 
-  const externalGroups = APP_LIST.map((app) => ({
-    key: app.id,
-    title: app.label,
-    iconSrc: app.iconSrc,
-    hint: app.skillPathLabel,
-    skills: filteredExternal.filter((skill) => skill.appId === app.id),
-  })).filter((group) => group.skills.length > 0);
-
   const renderActiveTabContent = () => {
     if (activeLibraryTab === "self-created") {
       if (filteredSelfCreated.length === 0) {
@@ -1495,6 +1433,14 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
       ));
     }
 
+    if (!externalAppFilter) {
+      return (
+        <div className={s.empty}>
+          从左侧二级列表选择一个 CLI 来源后，这里会显示对应的外部 Skills。
+        </div>
+      );
+    }
+
     if (filteredExternal.length === 0) {
       return (
         <div className={s.empty}>
@@ -1503,54 +1449,18 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
       );
     }
 
-    // When a specific CLI is selected in sidebar, render flat list without group headers
-    if (externalAppFilter) {
-      return filteredExternal.map((skill) => {
-        const key = `${skill.appId}:${skill.slug}`;
-        return (
-          <ExternalSkillCard
-            key={key}
-            skill={skill}
-            selected={selectedExternalKey === key}
-            onClick={() => setSelectedExternalKey(key)}
-              onImport={() => handlePreviewExternalImport(skill)}
-          />
-        );
-      });
-    }
-
-    return externalGroups.map((group) => (
-      <GroupSection
-        key={group.key}
-        title={
-          <span className={s.externalGroupTitle}>
-            <span className={s.externalGroupName}>{group.title}</span>
-            <span className={s.externalGroupHint}>{group.hint}</span>
-          </span>
-        }
-        count={group.skills.length}
-        collapsed={isGroupCollapsed(`external:${group.key}`)}
-        onToggle={() => toggleGroup(`external:${group.key}`)}
-        icon={
-          <span className={s.externalGroupIcon}>
-            <img src={group.iconSrc} alt="" className={s.externalGroupIconImage} />
-          </span>
-        }
-      >
-        {group.skills.map((skill) => {
-          const key = `${skill.appId}:${skill.slug}`;
-          return (
-            <ExternalSkillCard
-              key={key}
-              skill={skill}
-              selected={selectedExternalKey === key}
-              onClick={() => setSelectedExternalKey(key)}
-              onImport={() => handlePreviewExternalImport(skill)}
-            />
-          );
-        })}
-      </GroupSection>
-    ));
+    return filteredExternal.map((skill) => {
+      const key = `${skill.appId}:${skill.slug}`;
+      return (
+        <ExternalSkillCard
+          key={key}
+          skill={skill}
+          selected={selectedExternalKey === key}
+          onClick={() => setSelectedExternalKey(key)}
+          onImport={() => handlePreviewExternalImport(skill)}
+        />
+      );
+    });
   };
 
   return (
@@ -1577,7 +1487,7 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
               placeholder="搜索 Skills..."
             />
           </div>
-          <button className={s.importBtn} onClick={() => setShowImportModal(true)} disabled={importing}>
+          <button className={s.importBtn} onClick={() => void handleImport()} disabled={importing}>
             {importing ? <><Loader size={12} className={s.btnSpin} /> 导入中</> : "导入"}
           </button>
           <button className={s.createBtn} onClick={() => onNavigate("create")}>
@@ -1632,20 +1542,11 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
             </div>
             <div className={s.detailPlaceholderTitle}>外部 Skills</div>
             <div className={s.detailPlaceholderHint}>
-              这里按 CLI 分组展示从各个技能目录里发现的可导入项。点击左侧卡片即可把外部 Skill 纳入 SkillSwitch 管理。
+              从左侧二级列表选择一个 CLI 来源，再查看并导入该目录下发现的外部 Skill。
             </div>
           </div>
         )}
       </div>
-
-      {/* Import Modal */}
-      {showImportModal && (
-        <ImportModal
-          onClose={() => setShowImportModal(false)}
-          onImportFolder={handleImportFolder}
-          onImportZip={handleImportZip}
-        />
-      )}
       {externalImportPreview && (
         <ExternalImportPreviewModal
           preview={externalImportPreview}

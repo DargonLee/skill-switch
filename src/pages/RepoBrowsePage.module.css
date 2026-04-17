@@ -72,6 +72,10 @@
   transform: translateY(-1px);
 }
 
+.cardPreviewable {
+  cursor: pointer;
+}
+
 .cardContent {
   display: flex;
   align-items: flex-start;
@@ -171,6 +175,13 @@
   font-size: 0.62rem;
   color: var(--text-muted);
   opacity: 0.8;
+}
+
+.cardPreviewHint {
+  margin-left: auto;
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: var(--primary);
 }
 
 /* 磁吸式悬浮按钮 - 右下角 */
@@ -332,3 +343,171 @@
   animation:slideIn 0.2s ease-out;
 }
 @keyframes slideIn { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
+
+.previewModal {
+  width: min(880px, calc(100vw - 48px));
+  max-height: min(82vh, 900px);
+}
+
+.previewHeaderMain {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.previewHeaderMeta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.previewBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(82vh - 72px);
+}
+
+.previewSummaryCard {
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border-subtle));
+  background: color-mix(in srgb, var(--primary) 6%, var(--bg-surface));
+}
+
+.previewSectionLabel {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--primary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.previewSummaryText {
+  margin-top: 8px;
+  font-size: 0.84rem;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.previewMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.previewMetaChip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+}
+
+.previewSection {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.previewSectionTitle {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.previewContent {
+  flex: 1;
+  min-height: 320px;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-base) 85%, var(--bg-surface));
+  color: var(--text-primary);
+  font-size: 0.74rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+}
+
+.previewLoading,
+.previewErrorBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 120px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+
+.previewErrorBox {
+  border-color: color-mix(in srgb, var(--error) 22%, var(--border-subtle));
+  color: var(--error);
+}
+
+.previewActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.previewCloseBtn,
+.previewInstallBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: all 0.12s ease;
+}
+
+.previewCloseBtn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.previewCloseBtn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.previewInstallBtn {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: white;
+}
+
+.previewInstallBtn:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.previewInstallBtnDone {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.18);
+  color: #16a34a;
+}
+
+.previewInstallBtnDone:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.22);
+}
+
+.previewInstallBtn:disabled,
+.previewCloseBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
