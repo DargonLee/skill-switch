@@ -16,19 +16,26 @@ import { UpdateNotification } from "./components/ui/UpdateNotification";
 import "./App.css";
 
 export type PageId = "my-library" | "repo-browse" | "create" | "settings";
+export type LibraryTab = "self-created" | "third-party" | "external";
 
 export default function App() {
   const [activePage, setActivePage] = useState<PageId>("my-library");
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
+  const [activeLibraryTab, setActiveLibraryTab] = useState<LibraryTab>("self-created");
 
   const navigateToRepo = (repoId: string) => {
     setActiveRepoId(repoId);
     setActivePage("repo-browse");
   };
 
+  const navigateToLibraryTab = (tab: LibraryTab) => {
+    setActiveLibraryTab(tab);
+    setActivePage("my-library");
+  };
+
   const renderPage = () => {
     switch (activePage) {
-      case "my-library": return <MyLibraryPage />;
+      case "my-library": return <MyLibraryPage onNavigate={setActivePage} activeLibraryTab={activeLibraryTab} />;
       case "repo-browse": return <RepoBrowsePage repoId={activeRepoId ?? ""} />;
       case "create":    return <CreatePage onNavigate={setActivePage} />;
       case "settings":  return <SettingsPage />;
@@ -46,8 +53,10 @@ export default function App() {
                   <AppShell
                     activePage={activePage}
                     activeRepoId={activeRepoId}
+                    activeLibraryTab={activeLibraryTab}
                     onNavigate={setActivePage}
                     onNavigateRepo={navigateToRepo}
+                    onNavigateLibraryTab={navigateToLibraryTab}
                   >
                     {renderPage()}
                   </AppShell>

@@ -898,15 +898,20 @@ fn sync_backup_eligible_skills_from_backup_repo(
             continue;
         }
 
+        let skill_file = path.join("SKILL.md");
+        if !skill_file.exists() {
+            continue;
+        }
+
+        // Always mark as "seen" to prevent removal - ALL valid skills in backup_root
+        // are protected from removal, regardless of embedded_allowed_slugs filter
+        seen_slugs.insert(slug.clone());
+
+        // Skip update/add if embedded_allowed_slugs is set and doesn't contain this slug
         if let Some(allowed_slugs) = embedded_allowed_slugs.as_ref() {
             if !allowed_slugs.contains(&slug) {
                 continue;
             }
-        }
-
-        let skill_file = path.join("SKILL.md");
-        if !skill_file.exists() {
-            continue;
         }
 
         let content = fs::read_to_string(&skill_file).map_err(|error| error.to_string())?;
@@ -972,8 +977,6 @@ fn sync_backup_eligible_skills_from_backup_repo(
             });
             changed = true;
         }
-
-        seen_slugs.insert(slug);
     }
 
     let removed_ids = library
@@ -3892,6 +3895,145 @@ pub fn remove_project_cli_folders(
         removed_apps,
         failed_apps,
     })
+}
+
+/// Sync skills from skill-sources directory to library
+/// Scans skill-sources for all valid skills and ensures they exist in the library
+pub fn skill_sources_to_library_sync(app: &tauri::AppHandle) -> Result<(), String> {
+    let Some(repo_root) = connected_repo_root_if_available(app)? else {
+        return Ok(());
+    };
+
+    let sources_root = skill_sources_dir(app)?;
+    if !sources_root.exists() {
+        return Ok(());
+    }
+
+    let mut library = load_repo_library(&repo_root)?;
+    let now = now_ms();
+    let mut changed = false;
+    let mut existing_by_slug = HashMap::new();
+
+    for (index, resource) in library.resources.iter().enumerate() {
+        if is_managed_skill_resource(resource) {
+            existing_by_slug.insert(resource.slug.clone(), index);
+        }
+    }
+
+    // Scan skill-sources directory
+    for entry in fs::read_dir(&sources_root).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let slug = entry.file_name().to_string_lossy().into_owned();
+
+        if slug.starts_with('.') || !path.is_dir() {
+            continue;
+        }
+
+        let skill_file = path.join("SKILL.md");
+        if !skill_file.exists() {
+            continue;
+        }
+
+        let content = fs::read_to_string(&skill_file).map_err(|e| e.to_string())?;
+        let revision = compute_revision(&content);
+        let (name, description, tags) =
+            derive_skill_source_metadata(&slug, &content, None);
+
+        if let Some(index) = existing_by_slug.get(&slug).copied() {
+            // Update existing skill
+            if let Some(resource) = library.resources.get_mut(index) {
+                let mut resource_changed = false;
+
+                if resource.title != name {
+                    resource.title = name;
+                    resource_changed = true;
+                }
+                if resource.description != description {
+                    resource.description = description;
+                    resource_changed = true;
+                }
+                if resource.tags != tags {
+                    resource.tags = tags;
+                    resource_changed = true;
+                }
+                if resource.content != content {
+                    resource.content = content.clone();
+                    resource_changed = true;
+                }
+                if resource.revision != revision {
+                    resource.revision = revision;
+                    resource_changed = true;
+                }
+
+                if resource_changed {
+                    resource.updated_at = now;
+                    changed = true;
+                }
+            }
+        } else {
+            // Add new skill
+            library.resources.push(Resource {
+                id: Uuid::new_v4().to_string(),
+                slug: slug.clone(),
+                title: name,
+                description,
+                kind: ResourceKind::Skill,
+                scope: ResourceScope::Global,
+                origin: ResourceOrigin::Private,
+                source_status: SourceStatus::LocalOnly,
+                project_id: None,
+                tags,
+                content,
+                revision,
+                source_url: None,
+                source_ref: None,
+                source_path: None,
+                upstream_revision: None,
+                forked_from: None,
+                created_at: now,
+                updated_at: now,
+            });
+            changed = true;
+        }
+    }
+
+    // Remove self-created skills whose slug no longer exists in skill-sources
+    let on_disk_slugs: HashSet<String> = {
+        let mut slugs = HashSet::new();
+        if let Ok(entries) = fs::read_dir(&sources_root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let slug = entry.file_name().to_string_lossy().into_owned();
+                if !slug.starts_with('.') && path.is_dir() && path.join("SKILL.md").exists() {
+                    slugs.insert(slug);
+                }
+            }
+        }
+        slugs
+    };
+
+    let before_len = library.resources.len();
+    library.resources.retain(|resource| {
+        if !is_managed_skill_resource(resource) {
+            return true;
+        }
+        // Keep third-party / remote skills — they are managed by repo-source sync
+        if skill_has_remote_tag(resource) {
+            return true;
+        }
+        // Keep skills whose slug still exists on disk
+        on_disk_slugs.contains(&resource.slug)
+    });
+    if library.resources.len() != before_len {
+        changed = true;
+    }
+
+    if changed {
+        save_repo_library(&repo_root, &library)?;
+    }
+
+    Ok(())
 }
 
 // ─── Global skill install functions ─────────────────────────────────────────────

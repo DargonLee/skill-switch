@@ -32,13 +32,14 @@
 }
 .importBtn:hover { border-color: var(--primary); color: var(--primary); }
 
-.updateAllBtn {
+.createBtn {
+  display: inline-flex; align-items: center; gap: 4px;
   padding: 6px 14px; border-radius: var(--radius-md);
   background: var(--primary); color: white;
   font-size: 0.78rem; font-weight: 700;
   cursor: pointer; transition: background 0.12s;
 }
-.updateAllBtn:hover { background: var(--primary-hover); }
+.createBtn:hover { background: var(--primary-hover); }
 
 /* Body */
 .body { flex: 1; display: flex; min-height: 0; overflow: hidden; }

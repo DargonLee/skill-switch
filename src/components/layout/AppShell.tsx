@@ -1,6 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import type { PageId } from "../../App";
-import { APP_LIST } from "../../context/AppContext";
+import type { PageId, LibraryTab } from "../../App";
 import { useSkills } from "../../context/SkillContext";
 import { useSettings } from "../../context/SettingsContext";
 import { useSource } from "../../context/SourceContext";
@@ -12,15 +11,17 @@ import { repoSourceDelete, repoSourceNeedsSync, repoSourceSync } from "../../ser
 import type { ThirdPartyRepo } from "../../types";
 import {
   Plus, Settings, Zap, Sparkles, Database,
-  BookMarked, Plus as PlusIcon, Globe, X, Loader, Cloud, RefreshCw, Trash2,
+  BookMarked, Globe, X, Loader, Cloud, RefreshCw, Trash2, ExternalLink, Box,
 } from "lucide-react";
 import s from "./AppShell.module.css";
 
 interface Props {
   activePage: PageId;
   activeRepoId: string | null;
+  activeLibraryTab: LibraryTab;
   onNavigate: (page: PageId) => void;
   onNavigateRepo: (repoId: string) => void;
+  onNavigateLibraryTab: (tab: LibraryTab) => void;
   children: React.ReactNode;
 }
 
@@ -101,8 +102,8 @@ function AddRepoModal({ onClose, onAdd }: {
   );
 }
 
-export function AppShell({ activePage, activeRepoId, onNavigate, onNavigateRepo, children }: Props) {
-  const { skills } = useSkills();
+export function AppShell({ activePage, activeRepoId, activeLibraryTab, onNavigate, onNavigateRepo, onNavigateLibraryTab, children }: Props) {
+  const { skills, externalSkills } = useSkills();
   const { settings, updateSettings } = useSettings();
   const { sourceStates, marketState, registryState, refresh } = useSource();
   const toast = useToast();
@@ -244,10 +245,21 @@ export function AppShell({ activePage, activeRepoId, onNavigate, onNavigateRepo,
     toast.success("仓库源已删除，并移除了本地克隆");
   }, [activePage, activeRepoId, onNavigate, repos, toast, updateSettings]);
 
-  const navItems = useMemo(() => [
-    { id: "my-library" as PageId, label: "我的库", icon: <BookMarked size={16} />, badge: skills.length || undefined },
-    { id: "create" as PageId, label: "创建", icon: <PlusIcon size={16} /> },
-  ], [skills.length]);
+  const selfCreatedCount = useMemo(
+    () => skills.filter((sk) => !sk.tags.some((t) => t.startsWith("_remote:") && t.slice(8) !== BACKUP_SOURCE_REPO_ID)).length,
+    [skills],
+  );
+  const thirdPartyCount = useMemo(
+    () => skills.filter((sk) => sk.tags.some((t) => t.startsWith("_remote:") && t.slice(8) !== BACKUP_SOURCE_REPO_ID)).length,
+    [skills],
+  );
+  const externalCount = externalSkills.length;
+
+  const librarySubItems: Array<{ tab: LibraryTab; label: string; icon: React.ReactNode; count: number }> = useMemo(() => [
+    { tab: "self-created", label: "自建", icon: <BookMarked size={15} />, count: selfCreatedCount },
+    { tab: "external", label: "外部", icon: <ExternalLink size={15} />, count: externalCount },
+    { tab: "third-party", label: "第三方", icon: <Box size={15} />, count: thirdPartyCount },
+  ], [selfCreatedCount, externalCount, thirdPartyCount]);
 
   const backupSourceBadge = !backupSource
     ? "未配置"
@@ -270,40 +282,25 @@ export function AppShell({ activePage, activeRepoId, onNavigate, onNavigateRepo,
 
         {/* Scrollable content */}
         <div className={s.sidebarScroll}>
-          <div className={s.targetsPanel}>
-            <div className={s.targetsHeader}>
-              <span className={s.targetsLabel}>目标 CLI</span>
-              <span className={s.targetsHint}>启用 Skill 时会写入这些目录</span>
-            </div>
-            <div className={s.targetsList}>
-              {APP_LIST.map((app) => (
-                <div key={app.id} className={s.targetItem}>
-                  <span className={s.targetIcon}>
-                    <img src={app.iconSrc} alt="" className={s.targetIconImage} />
-                  </span>
-                  <span className={s.targetMeta}>
-                    <span className={s.targetName}>{app.label}</span>
-                    <span className={s.targetPath}>{app.skillPathLabel}</span>
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
 
           {/* Nav */}
           <nav className={s.nav}>
             <div className={s.primaryNavSection}>
-              {navItems.map(item => (
-                <button
-                  key={item.id}
-                  className={`${s.navItem} ${activePage === item.id && activePage !== "repo-browse" ? s.navItemActive : ""}`}
-                  onClick={() => onNavigate(item.id)}
-                >
-                  <span className={s.navIcon}>{item.icon}</span>
-                  <span className={s.navLabel}>{item.label}</span>
-                  {item.badge != null && item.badge > 0 && <span className={s.navBadge}>{item.badge}</span>}
-                </button>
-              ))}
+              <div className={s.navSectionLabel}>我的库</div>
+              {librarySubItems.map(item => {
+                const isActive = activePage === "my-library" && activeLibraryTab === item.tab;
+                return (
+                  <button
+                    key={item.tab}
+                    className={`${s.navItem} ${isActive ? s.navItemActive : ""}`}
+                    onClick={() => onNavigateLibraryTab(item.tab)}
+                  >
+                    <span className={s.navIcon}>{item.icon}</span>
+                    <span className={s.navLabel}>{item.label}</span>
+                    {item.count > 0 && <span className={s.navBadge}>{item.count}</span>}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Backup Source Pin */}

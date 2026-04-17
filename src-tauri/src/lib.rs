@@ -45,8 +45,15 @@ pub fn run() {
                 }
             }
 
-            // Run migration on startup
+            // Sync skills from skill-sources to library on startup
             std::thread::spawn(move || {
+                match store::skill_sources_to_library_sync(&handle) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        println!("[SkillSwitch] skill-sources sync failed: {}", e);
+                    }
+                }
+                // Run migration after sync
                 match store::migrate_copied_skills_to_symlinks(&handle) {
                     Ok(result) => {
                         if result.migrated_count > 0 || !result.errors.is_empty() {

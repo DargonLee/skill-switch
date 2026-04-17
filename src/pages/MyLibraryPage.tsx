@@ -1047,17 +1047,18 @@ function ImportModal({
 }
 
 // ── Main InstalledPage ───────────────────────────────────────────────────────
-export function MyLibraryPage() {
+export function MyLibraryPage({ onNavigate, activeLibraryTab }: {
+  onNavigate: (page: import("../App").PageId) => void;
+  activeLibraryTab: LibraryGroupTab;
+}) {
   const { skills, externalSkills, loading, error, search, remove, refresh } = useSkills();
   const { settings } = useSettings();
   const toast = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeLibraryTab, setActiveLibraryTab] = useState<LibraryGroupTab>("self-created");
   const [showImportModal, setShowImportModal] = useState(false);
   const [importing, setImporting] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-  const initializedLibraryTabRef = useRef(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detailLeaveGuardRef = useRef<DetailLeaveGuard | null>(null);
 
@@ -1096,9 +1097,7 @@ export function MyLibraryPage() {
     }
   }, [selectedSkill, remove, skills, toast]);
 
-  const handleUpdateAll = useCallback(() => {
-    toast.info("开始更新全部 Skills…");
-  }, [toast]);
+
 
   // Export handler
   const handleExport = useCallback(async () => {
@@ -1228,21 +1227,6 @@ export function MyLibraryPage() {
     : externalSkills;
   const isSearching = searchQuery.trim().length > 0;
 
-  useEffect(() => {
-    if (initializedLibraryTabRef.current || loading) return;
-
-    const initialTab: LibraryGroupTab = selfCreated.length > 0
-      ? "self-created"
-      : thirdParty.length > 0
-        ? "third-party"
-        : externalSkills.length > 0
-          ? "external"
-          : "self-created";
-
-    setActiveLibraryTab(initialTab);
-    initializedLibraryTabRef.current = true;
-  }, [loading, selfCreated.length, thirdParty.length, externalSkills.length]);
-
   const activeManagedSkills = activeLibraryTab === "self-created"
     ? selfCreated
     : activeLibraryTab === "third-party"
@@ -1297,18 +1281,6 @@ export function MyLibraryPage() {
     setSelectedId(skillId);
   }, [canLeaveDetail, selectedId]);
 
-  const handleLibraryTabChange = useCallback((nextTab: LibraryGroupTab) => {
-    if (nextTab === activeLibraryTab) {
-      return;
-    }
-
-    if (!canLeaveDetail()) {
-      return;
-    }
-
-    setActiveLibraryTab(nextTab);
-  }, [activeLibraryTab, canLeaveDetail]);
-
   const thirdPartyGroups = (() => {
     const grouped = new Map<string, Skill[]>();
     for (const skill of filteredThirdParty) {
@@ -1345,12 +1317,6 @@ export function MyLibraryPage() {
     hint: app.skillPathLabel,
     skills: filteredExternal.filter((skill) => skill.appId === app.id),
   })).filter((group) => group.skills.length > 0);
-
-  const topLevelTabs: Array<{ id: LibraryGroupTab; label: string; fullLabel: string; count: number }> = [
-    { id: "self-created", label: "自建", fullLabel: "自建 Skills", count: filteredSelfCreated.length },
-    { id: "third-party", label: "第三方", fullLabel: "第三方 Skills", count: filteredThirdParty.length },
-    { id: "external", label: "外部", fullLabel: "外部 Skills", count: filteredExternal.length },
-  ];
 
   const renderActiveTabContent = () => {
     if (activeLibraryTab === "self-created") {
@@ -1468,8 +1434,8 @@ export function MyLibraryPage() {
           <button className={s.importBtn} onClick={() => setShowImportModal(true)} disabled={importing}>
             {importing ? <><Loader size={12} className={s.btnSpin} /> 导入中</> : "导入"}
           </button>
-          <button className={s.updateAllBtn} onClick={handleUpdateAll}>
-            ⟳ 更新全部
+          <button className={s.createBtn} onClick={() => onNavigate("create")}>
+            <Plus size={14} /> 创建 Skill
           </button>
         </div>
       </header>
@@ -1489,27 +1455,6 @@ export function MyLibraryPage() {
           <LoadingSkeleton />
         ) : (
           <div className={s.list}>
-            <div className={s.groupTabsSticky}>
-              <div className={s.groupTabs} role="tablist" aria-label="我的库一级分组">
-                {topLevelTabs.map((tab) => {
-                  const active = activeLibraryTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      title={tab.fullLabel}
-                      className={`${s.groupTab} ${active ? s.groupTabActive : ""}`}
-                      onClick={() => handleLibraryTabChange(tab.id)}
-                    >
-                      <span className={s.groupTabLabel}>{tab.label}</span>
-                      <span className={s.groupTabCount}>{tab.count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
             <div className={s.groupTabPanel}>
               {renderActiveTabContent()}
             </div>
