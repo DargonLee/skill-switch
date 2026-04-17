@@ -1199,6 +1199,152 @@
   border-radius: var(--radius-md);
 }
 
+.externalPreviewModal {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.externalPreviewMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+}
+
+.externalPreviewRow {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.externalPreviewLabel {
+  flex-shrink: 0;
+  min-width: 42px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.externalPreviewValue {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.externalPreviewPath {
+  word-break: break-all;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.externalPreviewWarning {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  color: #b45309;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.externalPreviewSection {
+  margin-top: 16px;
+}
+
+.externalPreviewSectionTitle {
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.externalPreviewList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.externalPreviewEntry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.externalPreviewEntryName {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}
+
+.externalPreviewEntryMeta {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.externalPreviewEmpty {
+  padding: 18px;
+  text-align: center;
+  border-radius: 10px;
+  background: var(--bg-base);
+  border: 1px dashed var(--border-subtle);
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.externalPreviewActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.previewCancelBtn,
+.previewConfirmBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.previewCancelBtn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+.previewConfirmBtn {
+  background: var(--primary);
+  border: none;
+  color: white;
+}
+
+.previewCancelBtn:disabled,
+.previewConfirmBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ── External Detail Panel (read-only) ── */
 .detailInner {
   padding: 24px 20px;

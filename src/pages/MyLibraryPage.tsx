@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { readDir } from "@tauri-apps/plugin-fs";
 import {
   X,
   Search,
@@ -98,6 +99,12 @@ function isThirdPartySkill(skill: Skill): boolean {
 
 function getAppMeta(appId: string) {
   return APP_LIST.find((app) => app.id === appId) ?? null;
+}
+
+interface ExternalImportPreviewState {
+  skill: ExternalSkill;
+  entries: Array<{ name: string; kind: "file" | "directory"; isSymlink: boolean }>;
+  duplicateSkill: Skill | null;
 }
 
 // ── Skill Card (left list) ───────────────────────────────────────────────────
@@ -1132,6 +1139,8 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
   const [searchQuery, setSearchQuery] = useState("");
   const [showImportModal, setShowImportModal] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [externalImportPreview, setExternalImportPreview] = useState<ExternalImportPreviewState | null>(null);
+  const [loadingExternalPreview, setLoadingExternalPreview] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detailLeaveGuardRef = useRef<DetailLeaveGuard | null>(null);
@@ -1277,6 +1286,36 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
       toast.resolve(tid, "error", result.error);
     }
   }, [refresh, toast]);
+
+  const handlePreviewExternalImport = useCallback(async (skill: ExternalSkill) => {
+    setLoadingExternalPreview(true);
+    try {
+      const entries = await readDir(skill.path);
+      const previewEntries = entries
+        .filter((entry) => !!entry.name && !entry.name.startsWith("."))
+        .map((entry) => ({
+          name: entry.name,
+          kind: entry.isDirectory ? "directory" as const : "file" as const,
+          isSymlink: entry.isSymlink,
+        }))
+        .sort((left, right) => {
+          if (left.kind !== right.kind) {
+            return left.kind === "directory" ? -1 : 1;
+          }
+          return left.name.localeCompare(right.name, "zh-CN");
+        });
+
+      setExternalImportPreview({
+        skill,
+        entries: previewEntries,
+        duplicateSkill: skills.find((managedSkill) => managedSkill.slug === skill.slug) ?? null,
+      });
+    } catch (error) {
+      toast.error(`读取导入预览失败：${String(error)}`);
+    } finally {
+      setLoadingExternalPreview(false);
+    }
+  }, [skills, toast]);
 
   // Separate self-created and third-party skills
   const thirdPartyRepos = settings.thirdPartyRepos ?? [];
@@ -1474,7 +1513,7 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
             skill={skill}
             selected={selectedExternalKey === key}
             onClick={() => setSelectedExternalKey(key)}
-            onImport={() => handleImportExternal(skill)}
+              onImport={() => handlePreviewExternalImport(skill)}
           />
         );
       });
@@ -1506,7 +1545,7 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
               skill={skill}
               selected={selectedExternalKey === key}
               onClick={() => setSelectedExternalKey(key)}
-              onImport={() => handleImportExternal(skill)}
+              onImport={() => handlePreviewExternalImport(skill)}
             />
           );
         })}
@@ -1583,7 +1622,7 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
           <ExternalDetailPanel
             key={`${selectedExternal.appId}:${selectedExternal.slug}`}
             skill={selectedExternal}
-            onImport={() => handleImportExternal(selectedExternal)}
+            onImport={() => handlePreviewExternalImport(selectedExternal)}
           />
         )}
         {!selectedSkill && activeLibraryTab === "external" && !selectedExternal && (
@@ -1607,6 +1646,106 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
           onImportZip={handleImportZip}
         />
       )}
+      {externalImportPreview && (
+        <ExternalImportPreviewModal
+          preview={externalImportPreview}
+          importing={importing}
+          loading={loadingExternalPreview}
+          onClose={() => setExternalImportPreview(null)}
+          onConfirm={async () => {
+            await handleImportExternal(externalImportPreview.skill);
+            setExternalImportPreview(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExternalImportPreviewModal({
+  preview,
+  importing,
+  loading,
+  onClose,
+  onConfirm,
+}: {
+  preview: ExternalImportPreviewState;
+  importing: boolean;
+  loading: boolean;
+  onClose: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  const appMeta = getAppMeta(preview.skill.appId);
+
+  return (
+    <div className={modalStyles.modalOverlay} onClick={onClose}>
+      <div className={`${modalStyles.modal} ${s.externalPreviewModal}`} onClick={(event) => event.stopPropagation()}>
+        <div className={modalStyles.modalHeader}>
+          <span className={modalStyles.modalTitle}>导入前预览</span>
+          <button className={modalStyles.modalClose} onClick={onClose}>
+            <X size={14} />
+          </button>
+        </div>
+        <div className={modalStyles.modalBody}>
+          <div className={s.externalPreviewMeta}>
+            <div className={s.externalPreviewRow}>
+              <span className={s.externalPreviewLabel}>Skill</span>
+              <span className={s.externalPreviewValue}>{preview.skill.name} · {preview.skill.slug}</span>
+            </div>
+            {appMeta && (
+              <div className={s.externalPreviewRow}>
+                <span className={s.externalPreviewLabel}>来源</span>
+                <span className={s.externalPreviewValue}>{appMeta.label}</span>
+              </div>
+            )}
+            <div className={s.externalPreviewRow}>
+              <span className={s.externalPreviewLabel}>路径</span>
+              <span className={`${s.externalPreviewValue} ${s.externalPreviewPath}`}>{preview.skill.path}</span>
+            </div>
+            <div className={s.externalPreviewRow}>
+              <span className={s.externalPreviewLabel}>符号链接</span>
+              <span className={s.externalPreviewValue}>
+                {preview.skill.isSymlink ? `是${preview.skill.symlinkTarget ? ` → ${preview.skill.symlinkTarget}` : ""}` : "否"}
+              </span>
+            </div>
+          </div>
+
+          {preview.duplicateSkill && (
+            <div className={s.externalPreviewWarning}>
+              <AlertTriangle size={14} />
+              <span>当前库中已存在同 slug 的 Skill：{preview.duplicateSkill.name}。继续导入可能失败或需要重命名。</span>
+            </div>
+          )}
+
+          <div className={s.externalPreviewSection}>
+            <div className={s.externalPreviewSectionTitle}>即将导入的顶层文件</div>
+            {loading ? (
+              <div className={s.externalPreviewEmpty}>正在读取目录...</div>
+            ) : preview.entries.length > 0 ? (
+              <div className={s.externalPreviewList}>
+                {preview.entries.map((entry) => (
+                  <div key={entry.name} className={s.externalPreviewEntry}>
+                    {entry.kind === "directory" ? <Folder size={13} /> : <File size={13} />}
+                    <span className={s.externalPreviewEntryName}>{entry.name}</span>
+                    <span className={s.externalPreviewEntryMeta}>
+                      {entry.kind === "directory" ? "目录" : "文件"}{entry.isSymlink ? " · 符号链接" : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={s.externalPreviewEmpty}>目录为空或没有可展示的文件。</div>
+            )}
+          </div>
+
+          <div className={s.externalPreviewActions}>
+            <button className={s.previewCancelBtn} onClick={onClose} disabled={importing}>取消</button>
+            <button className={s.previewConfirmBtn} onClick={() => void onConfirm()} disabled={importing || loading}>
+              {importing ? <><Loader size={14} className={s.btnSpin} /> 导入中...</> : <><Download size={14} /> 确认导入</>}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -6,6 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "check": "pnpm lint && pnpm format:check && pnpm exec tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{json,mjs}\" .prettierrc.json TODO.md",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,mjs}\" .prettierrc.json TODO.md",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -20,11 +25,17 @@
     "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@tauri-apps/cli": "^2",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^10.2.0",
+    "eslint-plugin-react-hooks": "^7.1.0",
+    "globals": "^17.5.0",
+    "prettier": "^3.8.3",
     "typescript": "~5.6.2",
+    "typescript-eslint": "^8.58.2",
     "vite": "^6.0.3"
   }
 }

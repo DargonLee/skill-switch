@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PageId } from "../App";
 import type { StandardSkillDirectory } from "../types";
 import { AlertTriangle, Check, File, Folder, Info, Loader2, Sparkles, X } from "lucide-react";
 import { useSkills } from "../context/SkillContext";
+import { useSettings } from "../context/SettingsContext";
+import { useToast } from "../components/ui/Toast";
 import { formatSkillOperationError } from "../services/skill";
 import s from "./CreatePage.module.css";
 
@@ -60,6 +62,31 @@ const EMPTY_DIRECTORIES: Record<StandardSkillDirectory, boolean> = {
   assets: false,
 };
 
+function slugifyName(value: string): string {
+  let slug = "";
+  let prevDash = false;
+
+  for (const char of value) {
+    const mapped = /[a-z0-9]/.test(char)
+      ? char
+      : /[A-Z]/.test(char)
+      ? char.toLowerCase()
+      : "-";
+
+    if (mapped === "-") {
+      if (slug && !prevDash) {
+        slug += mapped;
+        prevDash = true;
+      }
+    } else {
+      slug += mapped;
+      prevDash = false;
+    }
+  }
+
+  return slug.replace(/^-+|-+$/g, "");
+}
+
 interface Props {
   onNavigate: (page: PageId) => void;
   editSkillId?: string;
@@ -67,15 +94,28 @@ interface Props {
 
 export function CreatePage({ onNavigate, editSkillId }: Props) {
   const { skills, create, update } = useSkills();
+  const { settings } = useSettings();
+  const toast = useToast();
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [colorIdx, setColorIdx] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [skillContent, setSkillContent] = useState(defaultSkillContent(""));
   const [skillContentTouched, setSkillContentTouched] = useState(false);
   const [selectedDirectories, setSelectedDirectories] =
     useState<Record<StandardSkillDirectory, boolean>>(EMPTY_DIRECTORIES);
+  const generatedSlug = useMemo(() => slugifyName(name.trim()), [name]);
+  const invalidSlug = useMemo(
+    () => !editSkillId && !!name.trim() && !generatedSlug,
+    [editSkillId, generatedSlug, name]
+  );
+  const duplicateSkill = useMemo(
+    () => !editSkillId && !!generatedSlug && skills.some((skill) => skill.slug === generatedSlug),
+    [editSkillId, generatedSlug, skills]
+  );
+  const backupSyncEnabled = !editSkillId && !!settings.backupSource?.enabled;
 
   // Load existing skill for edit mode
   useEffect(() => {
@@ -92,6 +132,8 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
 
   const handleNameChange = (v: string) => {
     setName(v);
+    setError(null);
+    setNameError(null);
     if (!editSkillId && !skillContentTouched) {
       setSkillContent(defaultSkillContent(v));
     }
@@ -110,12 +152,24 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
 
   const handleSave = async () => {
     if (!name.trim()) {
+      setNameError("请填写 Skill 名称");
       setError("请填写 Skill 名称");
+      return;
+    }
+
+    if (invalidSlug) {
+      setNameError("名称无效，请至少包含一个字母或数字");
+      return;
+    }
+
+    if (!editSkillId && duplicateSkill) {
+      setNameError(`名称已存在，请修改后重试（slug: ${generatedSlug}）`);
       return;
     }
 
     setSaving(true);
     setError(null);
+    setNameError(null);
 
     if (editSkillId) {
       // Update existing skill
@@ -128,6 +182,7 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
         projectIds: [],
       });
       if (result.ok) {
+        toast.success(`「${result.value.name}」已保存`);
         onNavigate("my-library");
       } else {
         setError(formatSkillOperationError(result.error, "保存"));
@@ -143,8 +198,21 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
         projectIds: [],
       });
       if (result.ok) {
+        const syncResult = result.value.backupSync;
+        if (syncResult.status === "success") {
+          toast.success(`「${result.value.skill.name}」已创建，并已同步到远端`);
+        } else if (syncResult.status === "failed") {
+          toast.error(
+            `「${result.value.skill.name}」已创建，但远端同步失败（已尝试 ${syncResult.attempts} 次）：${syncResult.lastError || syncResult.message || "未知错误"}`
+          );
+        } else {
+          toast.success(`「${result.value.skill.name}」已创建`);
+        }
         onNavigate("my-library");
       } else {
+        if (result.error.includes("已存在同名 Skill")) {
+          setNameError(`名称已存在，请修改后重试（slug: ${generatedSlug}）`);
+        }
         setError(formatSkillOperationError(result.error, "保存"));
       }
     }
@@ -166,7 +234,7 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
           </button>
           <button className={s.saveBtn} onClick={handleSave} disabled={saving}>
             {saving ? <Loader2 size={14} className={s.spin} /> : <Check size={14} />}
-            {saving ? "保存中..." : "保存"}
+            {saving ? (!editSkillId && backupSyncEnabled ? "保存并同步中..." : "保存中...") : "保存"}
           </button>
         </div>
       </header>
@@ -193,13 +261,21 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
           <div className={s.field}>
             <label className={s.label}>SKILL 名称</label>
             <input
-              className={s.input}
+              className={`${s.input} ${nameError || duplicateSkill || invalidSlug ? s.inputError : ""}`}
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
               placeholder="my-awesome-skill"
               spellCheck={false}
             />
-            <div className={s.hint}>只能用小写字母、数字和连字符</div>
+            {nameError || duplicateSkill || invalidSlug ? (
+              <div className={s.fieldError}>
+                <AlertTriangle size={12} /> {nameError || (invalidSlug ? "名称无效，请至少包含一个字母或数字" : `名称已存在，请修改后重试（slug: ${generatedSlug}）`)}
+              </div>
+            ) : (
+              <div className={s.hint}>
+                只能用小写字母、数字和连字符{generatedSlug ? ` · 将生成 slug: ${generatedSlug}` : ""}
+              </div>
+            )}
           </div>
           <div className={s.field}>
             <label className={s.label}>描述</label>
@@ -270,6 +346,15 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
               <div className={s.hint}>仅展示当前可编辑入口文件，现有附加目录不会被删除。</div>
             )}
           </div>
+          {!editSkillId && backupSyncEnabled && (
+            <div className={s.field}>
+              <label className={s.label}>远端同步</label>
+              <div className={s.syncNotice}>
+                <Info size={14} />
+                <span>创建成功后会立即同步到备份源；如果网络异常，系统会自动重试最多 3 次。</span>
+              </div>
+            </div>
+          )}
         </aside>
 
         {/* Right: editor */}

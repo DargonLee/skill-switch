@@ -1,6 +1,7 @@
 import { tauriInvoke, type Result } from "./tauri";
 import type {
   Skill,
+  CreateSkillResult,
   CreateSkillInput,
   UpdateSkillInput,
 } from "../types";
@@ -31,10 +32,10 @@ export async function skillGet(id: string): Promise<Result<Skill | null>> {
 
 /**
  * Create a new skill
- * Maps to backend: skill_create(CreateSkillInput) -> LegacySkillDto
+ * Maps to backend: skill_create(CreateSkillInput) -> CreateSkillResult
  */
-export async function skillCreate(input: CreateSkillInput): Promise<Result<Skill>> {
-  return tauriInvoke<Skill>("skill_create", { input });
+export async function skillCreate(input: CreateSkillInput): Promise<Result<CreateSkillResult>> {
+  return tauriInvoke<CreateSkillResult>("skill_create", { input });
 }
 
 /**

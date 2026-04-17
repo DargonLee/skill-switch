@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import type { Skill, ExternalSkill } from "../types";
+import type { Skill, ExternalSkill, CreateSkillResult } from "../types";
 import { skillList, skillSearch, skillCreate, skillUpdate, skillDelete, scanExternalSkills } from "../services/skill";
 import type { CreateSkillInput, UpdateSkillInput } from "../types";
 import { APP_LIST } from "./AppContext";
@@ -12,7 +12,7 @@ interface SkillContextValue {
   error: string | null;
   refresh: () => Promise<void>;
   search: (query: string) => Promise<void>;
-  create: (input: CreateSkillInput) => Promise<Result<Skill>>;
+  create: (input: CreateSkillInput) => Promise<Result<CreateSkillResult>>;
   update: (input: UpdateSkillInput) => Promise<Result<Skill>>;
   remove: (id: string) => Promise<boolean>;
 }
@@ -76,10 +76,10 @@ export function SkillProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   // Create skill
-  const create = useCallback(async (input: CreateSkillInput): Promise<Result<Skill>> => {
+  const create = useCallback(async (input: CreateSkillInput): Promise<Result<CreateSkillResult>> => {
     const result = await skillCreate(input);
     if (result.ok) {
-      setSkills((prev) => [...prev, result.value]);
+      setSkills((prev) => [...prev, result.value.skill]);
       return result;
     }
     setError(result.error);

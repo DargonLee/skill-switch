@@ -299,6 +299,18 @@ export interface CreateSkillInput {
   projectIds: string[];
 }
 
+export interface BackupSyncResult {
+  status: "skipped" | "success" | "failed";
+  attempts: number;
+  message?: string | null;
+  lastError?: string | null;
+}
+
+export interface CreateSkillResult {
+  skill: Skill;
+  backupSync: BackupSyncResult;
+}
+
 export interface UpdateSkillInput {
   id: string;
   name?: string;

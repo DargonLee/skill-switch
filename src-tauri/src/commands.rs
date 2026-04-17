@@ -267,7 +267,7 @@ pub fn skill_get(
 pub fn skill_create(
     app: tauri::AppHandle,
     input: CreateSkillInput,
-) -> Result<crate::domain::LegacySkillDto, String> {
+) -> Result<crate::domain::CreateLegacySkillResult, String> {
     store::create_legacy_skill(&app, &input)
 }
 

@@ -325,6 +325,22 @@ pub struct LegacySkillDto {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupSyncResult {
+    pub status: String,
+    pub attempts: usize,
+    pub message: Option<String>,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateLegacySkillResult {
+    pub skill: LegacySkillDto,
+    pub backup_sync: BackupSyncResult,
+}
+
 /// A skill found in an external app directory (not managed by SkillSwitch)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

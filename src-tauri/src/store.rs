@@ -8,8 +8,9 @@ use tauri::Manager;
 use uuid::Uuid;
 
 use crate::domain::{
-    AppSettings, BackupSourceConfig, BackupSourceStatus, CheckSymlinkStatusInput,
-    CheckSymlinkStatusResult, CreateProjectInput, CreateSkillInput, InstallRecord,
+    AppSettings, BackupSourceConfig, BackupSourceStatus, BackupSyncResult,
+    CheckSymlinkStatusInput, CheckSymlinkStatusResult, CreateLegacySkillResult,
+    CreateProjectInput, CreateSkillInput, InstallRecord,
     InstallSkillGlobalInput, InstallSkillGlobalResult, InstallSkillToProjectInput,
     InstallSkillToProjectResult, InstallStatus, InstallTarget, InstallTargetKind, LegacyProjectDto,
     LegacySkillDto, LocalProjectBinding, LocalState, PreviewDecisionAction, PreviewPlan,
@@ -741,6 +742,8 @@ fn ensure_managed_skills_materialized(app: &tauri::AppHandle) -> Result<(), Stri
         return Ok(());
     };
 
+    snapshot_skill_sources_before_mutation(app, "materialize-from-library")?;
+
     let library = load_repo_library(&repo_root)?;
     for resource in library
         .resources
@@ -865,6 +868,8 @@ fn sync_backup_eligible_skills_from_backup_repo(
     if !backup_root.exists() {
         return Ok(());
     }
+
+    snapshot_skill_sources_before_mutation(app, "sync-from-backup-source")?;
 
     let mut library = load_repo_library(&repo_root)?;
     let embedded_backup_library = repo_manifest_path(backup_root)
@@ -1036,7 +1041,15 @@ fn detach_backup_git_metadata_from_live_skill_sources(app: &tauri::AppHandle) ->
 pub fn create_legacy_skill(
     app: &tauri::AppHandle,
     input: &CreateSkillInput,
-) -> Result<LegacySkillDto, String> {
+) -> Result<CreateLegacySkillResult, String> {
+    create_legacy_skill_internal(app, input, true)
+}
+
+fn create_legacy_skill_internal(
+    app: &tauri::AppHandle,
+    input: &CreateSkillInput,
+    snapshot_before_write: bool,
+) -> Result<CreateLegacySkillResult, String> {
     let repo_root = connected_repo_root(app)?;
     let mut library = load_repo_library_for_legacy_skills(app, &repo_root)?;
     let now = now_ms();
@@ -1048,6 +1061,10 @@ pub fn create_legacy_skill(
         .any(|resource| is_managed_skill_resource(resource) && resource.slug == slug)
     {
         return Err(format!("已存在同名 Skill：{}", slug));
+    }
+
+    if snapshot_before_write {
+        snapshot_skill_sources_before_mutation(app, &format!("create-{}", slug))?;
     }
 
     let resource = Resource {
@@ -1087,10 +1104,129 @@ pub fn create_legacy_skill(
         &input.directories,
     )?;
 
-    // Sync to backup source if configured
-    let _ = backup_source_push(app);
+    let backup_sync = sync_backup_source_after_create(app);
 
-    Ok(resource_to_legacy_skill(&resource, &library))
+    Ok(CreateLegacySkillResult {
+        skill: resource_to_legacy_skill(&resource, &library),
+        backup_sync,
+    })
+}
+
+fn sync_backup_source_after_create(app: &tauri::AppHandle) -> BackupSyncResult {
+    const MAX_ATTEMPTS: usize = 3;
+
+    let source = match backup_source_settings(app) {
+        Ok(Some(source)) => source,
+        Ok(None) => {
+            return BackupSyncResult {
+                status: "skipped".to_string(),
+                attempts: 0,
+                message: Some("未配置备份源，已跳过远端同步".to_string()),
+                last_error: None,
+            }
+        }
+        Err(error) => {
+            return BackupSyncResult {
+                status: "failed".to_string(),
+                attempts: 0,
+                message: Some("读取备份源配置失败".to_string()),
+                last_error: Some(error),
+            }
+        }
+    };
+
+    if !source.enabled {
+        return BackupSyncResult {
+            status: "skipped".to_string(),
+            attempts: 0,
+            message: Some("备份源已禁用，已跳过远端同步".to_string()),
+            last_error: None,
+        };
+    }
+
+    let mut last_error: Option<String> = None;
+    let mut attempted_connect = false;
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        match backup_source_push(app) {
+            Ok(_) => {
+                return BackupSyncResult {
+                    status: "success".to_string(),
+                    attempts: attempt,
+                    message: Some(if attempt > 1 {
+                        format!("远端同步成功（第 {} 次尝试成功）", attempt)
+                    } else {
+                        "远端同步成功".to_string()
+                    }),
+                    last_error: None,
+                }
+            }
+            Err(error) => {
+                let retryable = is_retryable_backup_sync_error(&error);
+                let requires_connect = error.contains("not connected locally yet");
+                last_error = Some(error.clone());
+
+                if requires_connect && !attempted_connect {
+                    attempted_connect = true;
+                    match backup_source_connect(app) {
+                        Ok(_) => continue,
+                        Err(connect_error) => {
+                            attempted_connect = false;
+                            last_error = Some(connect_error.clone());
+                            if attempt < MAX_ATTEMPTS {
+                                continue;
+                            }
+
+                            return BackupSyncResult {
+                                status: "failed".to_string(),
+                                attempts: attempt,
+                                message: Some("远端同步失败".to_string()),
+                                last_error,
+                            };
+                        }
+                    }
+                }
+
+                if attempt < MAX_ATTEMPTS && retryable {
+                    continue;
+                }
+
+                return BackupSyncResult {
+                    status: "failed".to_string(),
+                    attempts: attempt,
+                    message: Some("远端同步失败".to_string()),
+                    last_error,
+                };
+            }
+        }
+    }
+
+    BackupSyncResult {
+        status: "failed".to_string(),
+        attempts: MAX_ATTEMPTS,
+        message: Some("远端同步失败".to_string()),
+        last_error,
+    }
+}
+
+fn is_retryable_backup_sync_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    [
+        "network",
+        "timed out",
+        "timeout",
+        "connection",
+        "broken pipe",
+        "could not resolve host",
+        "resolve host",
+        "connection reset",
+        "connection refused",
+        "temporarily unavailable",
+        "eof",
+        "ssh",
+    ]
+    .iter()
+    .any(|keyword| lower.contains(keyword))
 }
 
 pub fn update_legacy_skill(
@@ -1163,6 +1299,7 @@ pub fn update_legacy_skill(
         .find(|resource| resource.kind == ResourceKind::Skill && resource.id == input.id)
         .ok_or_else(|| format!("skill {} not found", input.id))?;
     let result = resource_to_legacy_skill(resource, &library);
+    snapshot_skill_sources_before_mutation(app, &format!("update-{}", resource.slug))?;
     save_repo_library(&repo_root, &library)?;
     ensure_skill_source(app, &resource.slug, &resource.content)?;
     Ok(result)
@@ -1185,6 +1322,7 @@ pub fn delete_legacy_skill(app: &tauri::AppHandle, id: &str) -> Result<(), Strin
 
     let source_dir = skill_source_dir(app, &removed_slug)?;
     if source_dir.exists() {
+        snapshot_skill_sources_before_mutation(app, &format!("delete-{}", removed_slug))?;
         remove_path(&source_dir)?;
     }
 
@@ -2716,6 +2854,7 @@ fn default_source_path_for_resource(resource: &Resource) -> String {
 // ─── Backup functions ──────────────────────────────────────────────────────────
 
 const BACKUPS_DIR: &str = "backups";
+const SKILL_SOURCE_SNAPSHOTS_DIR: &str = "skill-source-snapshots";
 const SETTINGS_FILE: &str = "settings.json";
 
 fn backups_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -2727,6 +2866,10 @@ fn backups_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn resolved_backup_path(app: &tauri::AppHandle) -> Result<String, String> {
     backups_dir(app).map(|path| path.to_string_lossy().into_owned())
+}
+
+fn skill_source_snapshots_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    backups_dir(app).map(|path| path.join(SKILL_SOURCE_SNAPSHOTS_DIR))
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -2746,6 +2889,56 @@ fn remove_path(path: &Path) -> Result<(), String> {
     } else {
         fs::remove_file(path).map_err(|error| error.to_string())
     }
+}
+
+fn prune_skill_source_snapshots(root: &Path, max_backups: usize) -> Result<(), String> {
+    if !root.exists() {
+        return Ok(());
+    }
+
+    let mut entries = fs::read_dir(root)
+        .map_err(|error| error.to_string())?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_dir())
+        .collect::<Vec<_>>();
+
+    entries.sort_by_key(|entry| entry.file_name());
+
+    if entries.len() <= max_backups {
+        return Ok(());
+    }
+
+    let remove_count = entries.len() - max_backups;
+    for entry in entries.into_iter().take(remove_count) {
+        remove_path(&entry.path())?;
+    }
+
+    Ok(())
+}
+
+fn snapshot_skill_sources_before_mutation(
+    app: &tauri::AppHandle,
+    reason: &str,
+) -> Result<Option<PathBuf>, String> {
+    let source_root = skill_sources_dir(app)?;
+    if !source_root.exists() || directory_is_effectively_empty(&source_root)? {
+        return Ok(None);
+    }
+
+    let settings = load_settings(app)?;
+    let snapshot_root = skill_source_snapshots_dir(app)?;
+    fs::create_dir_all(&snapshot_root).map_err(|error| error.to_string())?;
+
+    let snapshot_path = snapshot_root.join(format!(
+        "skill-sources-{}-{}-{}",
+        now_ms(),
+        slugify(reason),
+        Uuid::new_v4()
+    ));
+    copy_dir_all(&source_root, &snapshot_path)?;
+    prune_skill_source_snapshots(&snapshot_root, settings.max_backups.max(1) as usize)?;
+
+    Ok(Some(snapshot_path))
 }
 
 fn backup_source_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -4168,6 +4361,8 @@ pub fn import_skill_from_folder(
     // Generate slug first
     let slug = slugify(&name);
 
+    snapshot_skill_sources_before_mutation(app, &format!("import-folder-{}", slug))?;
+
     // Copy the entire folder to skill-sources directory
     let target_dir = skill_source_dir(app, &slug)?;
     if target_dir.exists() {
@@ -4186,7 +4381,7 @@ pub fn import_skill_from_folder(
         project_ids: vec![],
     };
 
-    create_legacy_skill(app, &input)
+    create_legacy_skill_internal(app, &input, false).map(|result| result.skill)
 }
 
 /// Import a skill from a zip file
@@ -4251,6 +4446,8 @@ pub fn import_skill_from_zip(
     // Generate slug
     let slug = slugify(&name);
 
+    snapshot_skill_sources_before_mutation(app, &format!("import-zip-{}", slug))?;
+
     // Extract all files to skill-sources directory
     let target_dir = skill_source_dir(app, &slug)?;
     if target_dir.exists() {
@@ -4307,7 +4504,7 @@ pub fn import_skill_from_zip(
         project_ids: vec![],
     };
 
-    create_legacy_skill(app, &input)
+    create_legacy_skill_internal(app, &input, false).map(|result| result.skill)
 }
 
 /// Parse skill metadata (name, description) from SKILL.md content

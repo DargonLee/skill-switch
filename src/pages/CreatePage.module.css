@@ -143,6 +143,32 @@
 .input:hover, .textarea:hover { border-color: var(--primary); }
 .input:focus, .textarea:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px var(--primary-muted); }
 .textarea { resize: none; line-height: 1.55; }
+.inputError {
+  border-color: var(--error) !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12) !important;
+}
+
+.fieldError {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--error);
+  line-height: 1.4;
+}
+
+.syncNotice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-base));
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border-subtle));
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
 
 /* ── Color Picker ── */
 .colors { display: flex; gap: 8px; margin-top: 4px; }
