@@ -69,80 +69,6 @@
   padding: 10px 8px 0;
 }
 
-.primaryNavSection {
-  margin: 0 2px;
-  padding: 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 14px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 6%, var(--bg-base)), var(--bg-base));
-}
-
-.navSectionLabel {
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  padding: 4px 10px 6px;
-}
-
-.navItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 9px 10px;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.1s, color 0.1s, border-color 0.1s;
-  background: transparent;
-  margin-bottom: 4px;
-}
-.navItem:last-child {
-  margin-bottom: 0;
-}
-.navItem:hover {
-  background: var(--bg-surface);
-  border-color: var(--border-subtle);
-}
-.navItemActive {
-  background: color-mix(in srgb, var(--primary) 10%, var(--bg-base)) !important;
-  color: var(--primary) !important;
-  border-color: color-mix(in srgb, var(--primary) 25%, var(--border-subtle)) !important;
-}
-.navIcon {
-  width: 16px;
-  text-align: center;
-  flex-shrink: 0;
-  color: inherit;
-}
-.navLabel {
-  flex: 1;
-  text-align: left;
-  color: var(--text-primary);
-}
-.navItemActive .navLabel {
-  color: var(--primary);
-}
-.navBadge {
-  min-width: 18px; height: 18px;
-  padding: 0 5px;
-  background: var(--bg-muted); color: var(--text-muted);
-  border-radius: 999px;
-  font-size: 0.62rem; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-  animation: pulseBadge 2s ease-in-out infinite;
-}
-.navItemActive .navBadge {
-  background: var(--primary);
-  color: white;
-}
-@keyframes pulseBadge { 0%,100%{opacity:1} 50%{opacity:.7} }
-
 /* Repos */
 .backupSection { margin: 0 2px; padding: 8px 8px 10px; border: 1px solid var(--border-subtle); border-radius: 14px; background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 6%, var(--bg-base)), var(--bg-base)); }
 .backupStateBadge {
@@ -203,7 +129,107 @@
   color: var(--text-muted);
   padding-left: 4px;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
+
+/* ── Library items (backup-style) ── */
+.libraryItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
+  margin-bottom: 2px;
+}
+.libraryItem:last-child { margin-bottom: 0; }
+.libraryItem:hover { background: var(--bg-surface); }
+.libraryItemActive {
+  background: color-mix(in srgb, var(--primary) 10%, var(--bg-base)) !important;
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--border-subtle)) !important;
+}
+.libraryItemActive .backupName,
+.libraryItemActive .backupMeta,
+.libraryItemActive .backupRight,
+.libraryItemActive .libraryItemIcon {
+  color: var(--primary);
+}
+.libraryItemIcon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.libraryChevron {
+  transition: transform 0.15s ease;
+  transform: rotate(0deg);
+  margin-left: 2px;
+}
+.libraryChevronOpen {
+  transform: rotate(90deg);
+}
+
+/* External sub-items (per-CLI) */
+.librarySubItems {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 4px 20px;
+}
+.librarySubItem {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.librarySubItem:hover {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+}
+.librarySubItemActive {
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-base)) !important;
+  border-color: color-mix(in srgb, var(--primary) 20%, var(--border-subtle)) !important;
+  color: var(--primary) !important;
+}
+.librarySubItemIcon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.librarySubItemLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.librarySubItemCount {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.librarySubItemActive .librarySubItemCount {
+  color: var(--primary);
+}
+
 .reposSection { padding-top: 8px; }
 .reposHeader {
   display: flex; align-items: center; justify-content: space-between;

@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import type { PageId, LibraryTab } from "../../App";
 import { useSkills } from "../../context/SkillContext";
+import { APP_LIST } from "../../context/AppContext";
 import { useSettings } from "../../context/SettingsContext";
 import { useSource } from "../../context/SourceContext";
 import { useToast } from "../ui/Toast";
@@ -11,7 +12,7 @@ import { repoSourceDelete, repoSourceNeedsSync, repoSourceSync } from "../../ser
 import type { ThirdPartyRepo } from "../../types";
 import {
   Plus, Settings, Zap, Sparkles, Database,
-  BookMarked, Globe, X, Loader, Cloud, RefreshCw, Trash2, ExternalLink, Box,
+  BookMarked, Globe, X, Loader, Cloud, RefreshCw, Trash2, ExternalLink, Box, ChevronRight,
 } from "lucide-react";
 import s from "./AppShell.module.css";
 
@@ -19,9 +20,11 @@ interface Props {
   activePage: PageId;
   activeRepoId: string | null;
   activeLibraryTab: LibraryTab;
+  externalAppFilter: string | null;
   onNavigate: (page: PageId) => void;
   onNavigateRepo: (repoId: string) => void;
   onNavigateLibraryTab: (tab: LibraryTab) => void;
+  onNavigateExternalApp: (appId: string) => void;
   children: React.ReactNode;
 }
 
@@ -102,7 +105,7 @@ function AddRepoModal({ onClose, onAdd }: {
   );
 }
 
-export function AppShell({ activePage, activeRepoId, activeLibraryTab, onNavigate, onNavigateRepo, onNavigateLibraryTab, children }: Props) {
+export function AppShell({ activePage, activeRepoId, activeLibraryTab, externalAppFilter, onNavigate, onNavigateRepo, onNavigateLibraryTab, onNavigateExternalApp, children }: Props) {
   const { skills, externalSkills } = useSkills();
   const { settings, updateSettings } = useSettings();
   const { sourceStates, marketState, registryState, refresh } = useSource();
@@ -255,11 +258,18 @@ export function AppShell({ activePage, activeRepoId, activeLibraryTab, onNavigat
   );
   const externalCount = externalSkills.length;
 
-  const librarySubItems: Array<{ tab: LibraryTab; label: string; icon: React.ReactNode; count: number }> = useMemo(() => [
-    { tab: "self-created", label: "自建", icon: <BookMarked size={15} />, count: selfCreatedCount },
-    { tab: "external", label: "外部", icon: <ExternalLink size={15} />, count: externalCount },
-    { tab: "third-party", label: "第三方", icon: <Box size={15} />, count: thirdPartyCount },
-  ], [selfCreatedCount, externalCount, thirdPartyCount]);
+  // Per-app external skill counts for sidebar sub-items
+  const externalAppGroups = useMemo(() =>
+    APP_LIST.map((app) => ({
+      appId: app.id,
+      label: app.label,
+      iconSrc: app.iconSrc,
+      count: externalSkills.filter((sk) => sk.appId === app.id).length,
+    })).filter((g) => g.count > 0),
+    [externalSkills],
+  );
+
+  const isExternalExpanded = activePage === "my-library" && activeLibraryTab === "external";
 
   const backupSourceBadge = !backupSource
     ? "未配置"
@@ -285,22 +295,73 @@ export function AppShell({ activePage, activeRepoId, activeLibraryTab, onNavigat
 
           {/* Nav */}
           <nav className={s.nav}>
-            <div className={s.primaryNavSection}>
-              <div className={s.navSectionLabel}>我的库</div>
-              {librarySubItems.map(item => {
-                const isActive = activePage === "my-library" && activeLibraryTab === item.tab;
-                return (
-                  <button
-                    key={item.tab}
-                    className={`${s.navItem} ${isActive ? s.navItemActive : ""}`}
-                    onClick={() => onNavigateLibraryTab(item.tab)}
-                  >
-                    <span className={s.navIcon}>{item.icon}</span>
-                    <span className={s.navLabel}>{item.label}</span>
-                    {item.count > 0 && <span className={s.navBadge}>{item.count}</span>}
-                  </button>
-                );
-              })}
+            {/* ── 我的库 section (backup-source style) ── */}
+            <div className={s.backupSection}>
+              <div className={s.reposHeader}>
+                <span>我的库</span>
+              </div>
+
+              {/* 自建 */}
+              <button
+                className={`${s.libraryItem} ${activePage === "my-library" && activeLibraryTab === "self-created" ? s.libraryItemActive : ""}`}
+                onClick={() => onNavigateLibraryTab("self-created")}
+              >
+                <BookMarked size={12} className={s.libraryItemIcon} />
+                <span className={s.backupNameWrap}>
+                  <span className={s.backupName}>自建</span>
+                  <span className={s.backupMeta}>本地创建和导入的 Skills</span>
+                </span>
+                <span className={s.backupRight}>{selfCreatedCount > 0 ? `${selfCreatedCount} 项` : ""}</span>
+              </button>
+
+              {/* 外部 — collapsible with per-CLI sub-items */}
+              <button
+                className={`${s.libraryItem} ${isExternalExpanded ? s.libraryItemActive : ""}`}
+                onClick={() => onNavigateLibraryTab("external")}
+              >
+                <ExternalLink size={12} className={s.libraryItemIcon} />
+                <span className={s.backupNameWrap}>
+                  <span className={s.backupName}>外部</span>
+                  <span className={s.backupMeta}>CLI 目录中发现的可导入项</span>
+                </span>
+                <span className={s.backupRight}>
+                  {externalCount > 0 ? `${externalCount} 项` : ""}
+                  <ChevronRight size={10} className={`${s.libraryChevron} ${isExternalExpanded ? s.libraryChevronOpen : ""}`} />
+                </span>
+              </button>
+
+              {/* External sub-items (per CLI app) */}
+              {isExternalExpanded && externalAppGroups.length > 0 && (
+                <div className={s.librarySubItems}>
+                  {externalAppGroups.map((group) => {
+                    const isSubActive = externalAppFilter === group.appId;
+                    return (
+                      <button
+                        key={group.appId}
+                        className={`${s.librarySubItem} ${isSubActive ? s.librarySubItemActive : ""}`}
+                        onClick={() => onNavigateExternalApp(group.appId)}
+                      >
+                        <img src={group.iconSrc} alt="" className={s.librarySubItemIcon} />
+                        <span className={s.librarySubItemLabel}>{group.label}</span>
+                        <span className={s.librarySubItemCount}>{group.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 第三方 */}
+              <button
+                className={`${s.libraryItem} ${activePage === "my-library" && activeLibraryTab === "third-party" ? s.libraryItemActive : ""}`}
+                onClick={() => onNavigateLibraryTab("third-party")}
+              >
+                <Box size={12} className={s.libraryItemIcon} />
+                <span className={s.backupNameWrap}>
+                  <span className={s.backupName}>第三方</span>
+                  <span className={s.backupMeta}>从仓库源安装的 Skills</span>
+                </span>
+                <span className={s.backupRight}>{thirdPartyCount > 0 ? `${thirdPartyCount} 项` : ""}</span>
+              </button>
             </div>
 
             {/* Backup Source Pin */}

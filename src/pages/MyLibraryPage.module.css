@@ -1198,3 +1198,78 @@
   border: 1.5px dashed var(--border-subtle);
   border-radius: var(--radius-md);
 }
+
+/* ── External Detail Panel (read-only) ── */
+.detailInner {
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.detailHero {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.detailHeroText {
+  flex: 1;
+  min-width: 0;
+}
+.detailSlug {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  display: block;
+}
+.externalDetailMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+}
+.externalDetailRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.externalDetailLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 36px;
+}
+.externalDetailValue {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
+}
+.externalDetailDesc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.externalDetailDesc p { margin: 0; }
+.externalDetailImportBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  background: var(--primary);
+  color: white;
+  transition: opacity 0.12s;
+}
+.externalDetailImportBtn:hover { opacity: 0.88; }

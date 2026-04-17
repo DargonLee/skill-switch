@@ -153,16 +153,20 @@ function SkillCard({
 // ── External Skill Card (from app directory, not managed by SkillSwitch) ───────
 function ExternalSkillCard({
   skill,
+  selected,
   onImport,
+  onClick,
 }: {
   skill: ExternalSkill;
+  selected?: boolean;
   onImport: () => void;
+  onClick?: () => void;
 }) {
   const iconColors = getIconColors(skill.name);
   const initial = skill.name.charAt(0).toUpperCase();
 
   return (
-    <div className={`${s.card} ${s.cardExternal}`}>
+    <div className={`${s.card} ${s.cardExternal} ${selected ? s.cardSelected : ""}`} onClick={onClick} style={{ cursor: onClick ? "pointer" : undefined }}>
       <div className={s.cardContent}>
         <div
           className={s.cardIcon}
@@ -191,6 +195,74 @@ function ExternalSkillCard({
         </button>
       </div>
     </div>
+  );
+}
+
+// ── External Detail Panel (read-only) ────────────────────────────────────────
+function ExternalDetailPanel({
+  skill,
+  onImport,
+}: {
+  skill: ExternalSkill;
+  onImport: () => void;
+}) {
+  const iconColors = getIconColors(skill.name);
+  const initial = skill.name.charAt(0).toUpperCase();
+  const appMeta = getAppMeta(skill.appId);
+
+  return (
+    <aside className={s.detail}>
+      <div className={s.detailInner}>
+        {/* Header */}
+        <div className={s.detailHero}>
+          <div
+            className={s.detailIcon}
+            style={{ background: iconColors.bg, color: iconColors.fg }}
+          >
+            <span>{initial}</span>
+          </div>
+          <div className={s.detailHeroText}>
+            <h2 className={s.detailName}>{skill.name}</h2>
+            <span className={s.detailSlug}>{skill.slug}</span>
+          </div>
+        </div>
+
+        {/* Meta info */}
+        <div className={s.externalDetailMeta}>
+          {appMeta && (
+            <div className={s.externalDetailRow}>
+              <span className={s.externalDetailLabel}>来源</span>
+              <span className={s.externalDetailValue}>
+                <img src={appMeta.iconSrc} alt="" style={{ width: 14, height: 14, borderRadius: 3, verticalAlign: -2 }} />
+                {" "}{appMeta.label}
+              </span>
+            </div>
+          )}
+          <div className={s.externalDetailRow}>
+            <span className={s.externalDetailLabel}>路径</span>
+            <span className={s.externalDetailValue} style={{ fontSize: "0.72rem", wordBreak: "break-all" }}>{skill.path}</span>
+          </div>
+          {skill.isSymlink && (
+            <div className={s.externalDetailRow}>
+              <span className={s.externalDetailLabel}>类型</span>
+              <span className={s.externalDetailValue}>符号链接{skill.symlinkTarget ? ` → ${skill.symlinkTarget}` : ""}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Description */}
+        {skill.description && (
+          <div className={s.externalDetailDesc}>
+            <p>{skill.description}</p>
+          </div>
+        )}
+
+        {/* Import action */}
+        <button className={s.externalDetailImportBtn} onClick={onImport}>
+          <Download size={14} /> 导入到 SkillSwitch
+        </button>
+      </div>
+    </aside>
   );
 }
 
@@ -1047,14 +1119,16 @@ function ImportModal({
 }
 
 // ── Main InstalledPage ───────────────────────────────────────────────────────
-export function MyLibraryPage({ onNavigate, activeLibraryTab }: {
+export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter }: {
   onNavigate: (page: import("../App").PageId) => void;
   activeLibraryTab: LibraryGroupTab;
+  externalAppFilter: string | null;
 }) {
   const { skills, externalSkills, loading, error, search, remove, refresh } = useSkills();
   const { settings } = useSettings();
   const toast = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showImportModal, setShowImportModal] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -1080,6 +1154,10 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab }: {
   const selectedSkill = activeLibraryTab === "external"
     ? null
     : skills.find((skill) => skill.id === selectedId) ?? null;
+
+  const selectedExternal = activeLibraryTab === "external" && selectedExternalKey
+    ? externalSkills.find((sk) => `${sk.appId}:${sk.slug}` === selectedExternalKey) ?? null
+    : null;
 
   const handleSnapshot = useCallback(() => {
     if (selectedSkill) toast.success(`「${selectedSkill.name}」快照已保存！`);
@@ -1215,8 +1293,13 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab }: {
 
   const filteredSelfCreated = filteredSkills.filter((skill) => !isThirdPartySkill(skill));
   const filteredThirdParty = filteredSkills.filter(isThirdPartySkill);
+
+  // Apply externalAppFilter first, then search query
+  const appFilteredExternal = externalAppFilter
+    ? externalSkills.filter((skill) => skill.appId === externalAppFilter)
+    : externalSkills;
   const filteredExternal = searchQuery.trim()
-    ? externalSkills.filter((skill) => {
+    ? appFilteredExternal.filter((skill) => {
         const query = searchQuery.toLowerCase();
         const appLabel = getAppMeta(skill.appId)?.label.toLowerCase() ?? "";
         return skill.name.toLowerCase().includes(query)
@@ -1224,7 +1307,7 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab }: {
           || (skill.description?.toLowerCase().includes(query) ?? false)
           || appLabel.includes(query);
       })
-    : externalSkills;
+    : appFilteredExternal;
   const isSearching = searchQuery.trim().length > 0;
 
   const activeManagedSkills = activeLibraryTab === "self-created"
@@ -1381,6 +1464,22 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab }: {
       );
     }
 
+    // When a specific CLI is selected in sidebar, render flat list without group headers
+    if (externalAppFilter) {
+      return filteredExternal.map((skill) => {
+        const key = `${skill.appId}:${skill.slug}`;
+        return (
+          <ExternalSkillCard
+            key={key}
+            skill={skill}
+            selected={selectedExternalKey === key}
+            onClick={() => setSelectedExternalKey(key)}
+            onImport={() => handleImportExternal(skill)}
+          />
+        );
+      });
+    }
+
     return externalGroups.map((group) => (
       <GroupSection
         key={group.key}
@@ -1399,13 +1498,18 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab }: {
           </span>
         }
       >
-        {group.skills.map((skill) => (
-          <ExternalSkillCard
-            key={`${skill.appId}:${skill.slug}`}
-            skill={skill}
-            onImport={() => handleImportExternal(skill)}
-          />
-        ))}
+        {group.skills.map((skill) => {
+          const key = `${skill.appId}:${skill.slug}`;
+          return (
+            <ExternalSkillCard
+              key={key}
+              skill={skill}
+              selected={selectedExternalKey === key}
+              onClick={() => setSelectedExternalKey(key)}
+              onImport={() => handleImportExternal(skill)}
+            />
+          );
+        })}
       </GroupSection>
     ));
   };
@@ -1415,10 +1519,13 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab }: {
       {/* ── Header ── */}
       <header className={s.header}>
         <div className={s.headerLeft}>
-          <h1 className={s.headerTitle}>我的库</h1>
+          <h1 className={s.headerTitle}>
+            {activeLibraryTab === "self-created" ? "自建 Skills" : activeLibraryTab === "external" ? "外部 Skills" : "第三方 Skills"}
+          </h1>
           <span className={s.headerSub}>
-            {selfCreated.length} 个自建 · {thirdParty.length} 个三方
-            {externalSkills.length > 0 && ` · ${externalSkills.length} 个外部候选`}
+            {activeLibraryTab === "self-created" && `${filteredSelfCreated.length} 个`}
+            {activeLibraryTab === "third-party" && `${filteredThirdParty.length} 个`}
+            {activeLibraryTab === "external" && `${filteredExternal.length} 个`}
           </span>
         </div>
         <div className={s.headerRight}>
@@ -1472,7 +1579,14 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab }: {
             onRegisterLeaveGuard={registerDetailLeaveGuard}
           />
         )}
-        {!selectedSkill && activeLibraryTab === "external" && (
+        {!selectedSkill && activeLibraryTab === "external" && selectedExternal && (
+          <ExternalDetailPanel
+            key={`${selectedExternal.appId}:${selectedExternal.slug}`}
+            skill={selectedExternal}
+            onImport={() => handleImportExternal(selectedExternal)}
+          />
+        )}
+        {!selectedSkill && activeLibraryTab === "external" && !selectedExternal && (
           <div className={s.detailPlaceholder}>
             <div className={s.detailPlaceholderIcon}>
               <ExternalLink size={18} />

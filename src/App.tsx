@@ -22,6 +22,7 @@ export default function App() {
   const [activePage, setActivePage] = useState<PageId>("my-library");
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
   const [activeLibraryTab, setActiveLibraryTab] = useState<LibraryTab>("self-created");
+  const [externalAppFilter, setExternalAppFilter] = useState<string | null>(null);
 
   const navigateToRepo = (repoId: string) => {
     setActiveRepoId(repoId);
@@ -31,11 +32,20 @@ export default function App() {
   const navigateToLibraryTab = (tab: LibraryTab) => {
     setActiveLibraryTab(tab);
     setActivePage("my-library");
+    if (tab !== "external") {
+      setExternalAppFilter(null);
+    }
+  };
+
+  const navigateToExternalApp = (appId: string) => {
+    setActiveLibraryTab("external");
+    setExternalAppFilter(appId);
+    setActivePage("my-library");
   };
 
   const renderPage = () => {
     switch (activePage) {
-      case "my-library": return <MyLibraryPage onNavigate={setActivePage} activeLibraryTab={activeLibraryTab} />;
+      case "my-library": return <MyLibraryPage onNavigate={setActivePage} activeLibraryTab={activeLibraryTab} externalAppFilter={externalAppFilter} />;
       case "repo-browse": return <RepoBrowsePage repoId={activeRepoId ?? ""} />;
       case "create":    return <CreatePage onNavigate={setActivePage} />;
       case "settings":  return <SettingsPage />;
@@ -54,9 +64,11 @@ export default function App() {
                     activePage={activePage}
                     activeRepoId={activeRepoId}
                     activeLibraryTab={activeLibraryTab}
+                    externalAppFilter={externalAppFilter}
                     onNavigate={setActivePage}
                     onNavigateRepo={navigateToRepo}
                     onNavigateLibraryTab={navigateToLibraryTab}
+                    onNavigateExternalApp={navigateToExternalApp}
                   >
                     {renderPage()}
                   </AppShell>
