@@ -996,15 +996,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-sm);
-  background: transparent;
-  border: 1px solid var(--border-default);
+  background: var(--bg-base);
+  border: 1.5px solid var(--border-default);
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.12s;
-  margin-left: 4px;
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 
 .finderBtn:hover {

@@ -107,24 +107,24 @@ pub fn backup_source_status(
 }
 
 #[tauri::command]
-pub fn backup_source_connect(
+pub async fn backup_source_connect(
     app: tauri::AppHandle,
 ) -> Result<crate::domain::BackupSourceStatus, String> {
-    store::backup_source_connect(&app)
+    run_blocking_command(move || store::backup_source_connect(&app)).await
 }
 
 #[tauri::command]
-pub fn backup_source_pull(
+pub async fn backup_source_pull(
     app: tauri::AppHandle,
 ) -> Result<crate::domain::BackupSourceStatus, String> {
-    store::backup_source_pull(&app)
+    run_blocking_command(move || store::backup_source_pull(&app)).await
 }
 
 #[tauri::command]
-pub fn backup_source_push(
+pub async fn backup_source_push(
     app: tauri::AppHandle,
 ) -> Result<crate::domain::BackupSourceStatus, String> {
-    store::backup_source_push(&app)
+    run_blocking_command(move || store::backup_source_push(&app)).await
 }
 
 #[tauri::command]
