@@ -473,10 +473,10 @@ pub fn skill_import_from_folder(
 }
 
 #[tauri::command]
-pub fn skill_import_from_dialog(
+pub async fn skill_import_from_dialog(
     app: tauri::AppHandle,
 ) -> Result<Option<crate::domain::LegacySkillDto>, String> {
-    store::import_skill_from_dialog(&app)
+    run_blocking_command(move || store::import_skill_from_dialog(&app)).await
 }
 
 #[tauri::command]

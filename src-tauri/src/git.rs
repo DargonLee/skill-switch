@@ -265,6 +265,48 @@ pub fn clone_repository(
     Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
 }
 
+/// Shallow clone with --depth 1 for faster operations
+pub fn shallow_clone(
+    remote_url: &str,
+    destination: &Path,
+    branch: Option<&str>,
+) -> Result<(), String> {
+    let mut command = Command::new("git");
+    command.arg("clone").arg("--depth").arg("1");
+    if let Some(branch) = branch {
+        command.arg("--branch").arg(branch);
+    }
+    command.arg(remote_url).arg(destination);
+
+    let output = command.output().map_err(|error| error.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+}
+
+/// Get the commit hash of a remote branch (for computing ahead/behind without local worktree)
+pub fn fetch_remote_branch_hash(remote_url: &str, branch: &str) -> Result<Option<String>, String> {
+    let output = Command::new("git")
+        .args(["ls-remote", "--heads", remote_url, &format!("refs/heads/{branch}")])
+        .output()
+        .map_err(|error| error.to_string())?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let hash = stdout
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().next())
+        .filter(|value| !value.is_empty());
+
+    Ok(hash.map(|s| s.to_string()))
+}
+
 pub fn pull(path: &Path) -> Result<(), String> {
     let output = run_git(Some(path), &["pull"]).ok_or_else(|| "git pull failed".to_string())?;
     if output.status.success() {

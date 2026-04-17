@@ -465,6 +465,8 @@ pub struct BackupSourceConfig {
     pub branch: String,
     pub local_path: Option<String>,
     pub last_synced_at: Option<i64>,
+    #[serde(default)]
+    pub last_synced_commit: Option<String>, // Store last synced commit hash for ahead/behind calculation
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -477,6 +479,8 @@ pub struct BackupSourceStatus {
     pub branch: String,
     pub local_path: Option<String>,
     pub last_synced_at: Option<i64>,
+    #[serde(default)]
+    pub last_synced_commit: Option<String>, // Store last synced commit hash for ahead/behind calculation
     pub connected: bool,
     pub git_available: bool,
     pub is_git_repo: bool,

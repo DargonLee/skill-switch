@@ -451,6 +451,7 @@ export interface BackupSource {
   branch: string;
   localPath?: string | null;
   lastSyncedAt?: number | null;
+  lastSyncedCommit?: string | null; // Store last synced commit hash for ahead/behind calculation
 }
 
 export interface BackupSourceStatus extends BackupSource {

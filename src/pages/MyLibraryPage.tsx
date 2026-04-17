@@ -456,6 +456,9 @@ function DirectoryBrowser({
           >
             {skill.slug}
           </span>
+          <button className={s.finderBtn} onClick={handleShowInFinder} title="在 Finder 中显示">
+            <ExternalLink size={12} />
+          </button>
           {pathSegments.map((segment, idx) => (
             <span key={idx} className={s.pathSegment}>
               <ChevronRight size={12} className={s.pathSeparator} />
@@ -473,9 +476,6 @@ function DirectoryBrowser({
             <ArrowLeft size={12} /> 上级
           </button>
         )}
-        <button className={s.finderBtn} onClick={handleShowInFinder} title="在 Finder 中显示">
-          <ExternalLink size={12} />
-        </button>
       </div>
       <div className={s.directoryList}>
         {listing.entries.length === 0 ? (

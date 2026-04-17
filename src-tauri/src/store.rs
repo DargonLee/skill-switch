@@ -4,8 +4,6 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "macos")]
-use std::process::Command;
 use tauri::Manager;
 use uuid::Uuid;
 
@@ -32,7 +30,6 @@ const LIBRARY_FILE: &str = "library.json";
 const BACKUP_SOURCE_DIR: &str = "backup-source";
 const SKILL_SOURCES_DIR: &str = "skill-sources";
 const DEFAULT_LIBRARY_REPO_DIR: &str = "library-repo";
-const SOURCE_ARCHIVES_DIR: &str = "source-archives";
 const STANDARD_SKILL_DIRECTORIES: &[&str] = &["scripts", "references", "assets"];
 
 pub fn now_ms() -> i64 {
@@ -737,25 +734,6 @@ fn derive_skill_source_metadata(
     (name, description, tags)
 }
 
-fn ensure_managed_skills_materialized(app: &tauri::AppHandle) -> Result<(), String> {
-    let Some(repo_root) = connected_repo_root_if_available(app)? else {
-        return Ok(());
-    };
-
-    snapshot_skill_sources_before_mutation(app, "materialize-from-library")?;
-
-    let library = load_repo_library(&repo_root)?;
-    for resource in library
-        .resources
-        .iter()
-        .filter(|resource| is_managed_skill_resource(resource))
-    {
-        ensure_skill_source(app, &resource.slug, &resource.content)?;
-    }
-
-    Ok(())
-}
-
 fn default_library_repo_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
@@ -1016,30 +994,6 @@ fn sync_backup_eligible_skills_from_backup_repo(
     }
 
     Ok(())
-}
-
-fn detach_backup_git_metadata_from_live_skill_sources(
-    app: &tauri::AppHandle,
-) -> Result<Vec<String>, String> {
-    let source_root = skill_sources_dir(app)?;
-    if !source_root.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut notices = Vec::new();
-    let git_dir = source_root.join(".git");
-    if git_dir.exists() {
-        remove_path(&git_dir)?;
-        notices.push("已将备份源 Git 元数据从 skill-sources 拆分到独立目录".into());
-    }
-
-    let embedded_library_dir = source_root.join(LIBRARY_DIR);
-    if embedded_library_dir.exists() {
-        remove_path(&embedded_library_dir)?;
-        notices.push("已从 skill-sources 清理嵌入的本地库索引".into());
-    }
-
-    Ok(notices)
 }
 
 pub fn create_legacy_skill(
@@ -1777,6 +1731,7 @@ pub fn backup_source_status(app: &tauri::AppHandle) -> Result<BackupSourceStatus
             branch: "main".to_string(),
             local_path: None,
             last_synced_at: None,
+            last_synced_commit: None,
             connected: false,
             git_available: git::git_available(),
             is_git_repo: false,
@@ -1795,7 +1750,7 @@ pub fn backup_source_connect(app: &tauri::AppHandle) -> Result<BackupSourceStatu
         .backup_source
         .clone()
         .ok_or_else(|| "backup source is not configured".to_string())?;
-    let normalized = normalize_backup_source(app, &source)?;
+    let normalized = normalize_backup_source_for_temp(app, &source)?;
 
     if !normalized.enabled {
         return Err("backup source is disabled".into());
@@ -1804,23 +1759,46 @@ pub fn backup_source_connect(app: &tauri::AppHandle) -> Result<BackupSourceStatu
         return Err("git is not available on this machine".into());
     }
 
-    let notice = prepare_backup_source_worktree(app, &source, &normalized)?;
-    let backup_root = PathBuf::from(
-        normalized
-            .local_path
-            .clone()
-            .ok_or_else(|| "backup source local path missing".to_string())?,
-    );
-    sync_backup_eligible_skills_from_backup_repo(app, &backup_root)?;
+    // Validate remote accessibility - we just need to be able to reach the remote
+    // Branch doesn't need to exist (will create on first push)
+    let _ = git::remote_branch_exists(&normalized.remote_url, &normalized.branch)
+        .map_err(|error| format!("无法访问远程仓库: {}", error))?;
 
+    let mut notices = Vec::new();
+
+    // Do initial pull if remote branch exists (use temp worktree)
+    if git::remote_branch_exists(&normalized.remote_url, &normalized.branch)? {
+        let mut worktree = create_temp_backup_worktree(app, &normalized)?;
+        git::pull(worktree.path())?;
+        snapshot_skill_sources_before_mutation(app, "connect-pull-from-backup-source")?;
+        sync_backup_eligible_skills_from_backup_repo(app, worktree.path())?;
+
+        // Get the commit hash before cleanup
+        let new_commit = git::head(worktree.path());
+        worktree.cleanup()?;
+
+        notices.push("已从远程仓库同步技能".into());
+
+        let mut updated = normalized.clone();
+        updated.last_synced_at = Some(now_ms());
+        updated.last_synced_commit = new_commit;
+        settings.backup_source = Some(updated.clone());
+        save_settings(app, &settings)?;
+
+        return backup_source_status_from_config(&updated, build_backup_source_notice(notices));
+    }
+
+    // Store config without local_path (temp worktree approach)
     let updated = BackupSourceConfig {
-        local_path: normalized.local_path.clone(),
+        local_path: None, // Remove local_path in new design
+        last_synced_commit: None,
         ..normalized
     };
 
     settings.backup_source = Some(updated.clone());
     save_settings(app, &settings)?;
-    backup_source_status_from_config(&updated, notice)
+
+    backup_source_status_from_config(&updated, build_backup_source_notice(notices))
 }
 
 pub fn backup_source_pull(app: &tauri::AppHandle) -> Result<BackupSourceStatus, String> {
@@ -1829,47 +1807,45 @@ pub fn backup_source_pull(app: &tauri::AppHandle) -> Result<BackupSourceStatus, 
         .backup_source
         .clone()
         .ok_or_else(|| "backup source is not configured".to_string())?;
-    let normalized = normalize_backup_source(app, &source)?;
+    let normalized = normalize_backup_source_for_temp(app, &source)?;
 
     if !normalized.enabled {
         return Err("backup source is disabled".into());
     }
 
-    let local_path = PathBuf::from(
-        normalized
-            .local_path
-            .clone()
-            .ok_or_else(|| "backup source local path missing".to_string())?,
-    );
-    if !local_path.exists() || !git::is_git_repo(&local_path) {
-        return Err("backup source is not connected locally yet".into());
-    }
-
-    let mut notices = Vec::new();
     if !git::remote_branch_exists(&normalized.remote_url, &normalized.branch)? {
+        // Remote branch doesn't exist, nothing to pull
         return backup_source_status_from_config(&normalized, None);
     }
 
-    git::checkout_branch(&local_path, &normalized.branch)?;
-    git::pull(&local_path)?;
-    sync_backup_eligible_skills_from_backup_repo(app, &local_path)?;
-    cleanup_legacy_backup_source_paths(app, &source, &normalized, &local_path)?;
-    if !source
-        .local_path
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or_default()
-        .is_empty()
-        && source.local_path != normalized.local_path
-    {
-        notices.push("已清理旧的 backup-source 目录，当前已切换为独立备份工作树".into());
-    }
+    // Create temporary worktree for pull
+    let mut worktree = create_temp_backup_worktree(app, &normalized)?;
+    let temp_path = worktree.path();
 
+    // Pull latest changes
+    git::pull(temp_path)?;
+
+    // Snapshot skill-sources before mutation (existing safety mechanism)
+    snapshot_skill_sources_before_mutation(app, "pull-from-backup-source")?;
+
+    // Sync skills from temp backup to skill-sources
+    sync_backup_eligible_skills_from_backup_repo(app, temp_path)?;
+
+    // Get the new commit hash before cleanup
+    let new_commit = git::head(temp_path);
+
+    // Cleanup temp worktree
+    worktree.cleanup()?;
+
+    // Update settings
     let mut next_source = normalized.clone();
     next_source.last_synced_at = Some(now_ms());
+    next_source.last_synced_commit = new_commit;
+    next_source.local_path = None; // Ensure no local_path in new design
     settings.backup_source = Some(next_source.clone());
     save_settings(app, &settings)?;
-    backup_source_status_from_config(&next_source, build_backup_source_notice(notices))
+
+    backup_source_status_from_config(&next_source, Some("已从远程仓库拉取最新内容".into()))
 }
 
 pub fn backup_source_push(app: &tauri::AppHandle) -> Result<BackupSourceStatus, String> {
@@ -1878,38 +1854,48 @@ pub fn backup_source_push(app: &tauri::AppHandle) -> Result<BackupSourceStatus, 
         .backup_source
         .clone()
         .ok_or_else(|| "backup source is not configured".to_string())?;
-    let normalized = normalize_backup_source(app, &source)?;
+    let normalized = normalize_backup_source_for_temp(app, &source)?;
 
     if !normalized.enabled {
         return Err("backup source is disabled".into());
     }
 
-    let local_path = PathBuf::from(
-        normalized
-            .local_path
-            .clone()
-            .ok_or_else(|| "backup source local path missing".to_string())?,
-    );
-    if !local_path.exists() || !git::is_git_repo(&local_path) {
-        return Err("backup source is not connected locally yet".into());
-    }
+    // Create temporary worktree (shallow clone)
+    let mut worktree = create_temp_backup_worktree(app, &normalized)?;
+    let temp_path = worktree.path();
 
-    materialize_backup_eligible_skills_to_backup_repo(app, &local_path)?;
-    git::configure_identity(&local_path)?;
-    ensure_backup_source_origin(&local_path, &normalized.remote_url)?;
-    git::checkout_branch(&local_path, &normalized.branch)?;
-    git::add_all(&local_path)?;
+    // Materialize skills to temp worktree
+    materialize_backup_eligible_skills_to_backup_repo(app, temp_path)?;
+
+    // Git operations
+    git::configure_identity(temp_path)?;
+    git::checkout_branch(temp_path, &normalized.branch)?;
+    git::add_all(temp_path)?;
+
     let commit_message = format!(
         "Backup skill sources {}",
         chrono::Utc::now().format("%Y-%m-%d %H:%M")
     );
-    let _ = git::commit(&local_path, &commit_message)?;
-    git::push_branch(&local_path, "origin", &normalized.branch)?;
+    let committed = git::commit(temp_path, &commit_message)?;
 
+    if committed {
+        git::push_branch(temp_path, "origin", &normalized.branch)?;
+    }
+
+    // Get the new commit hash before cleanup
+    let new_commit = git::head(temp_path);
+
+    // Cleanup temp worktree (RAII handles cleanup even on error)
+    worktree.cleanup()?;
+
+    // Update settings with new sync info
     let mut next_source = normalized.clone();
     next_source.last_synced_at = Some(now_ms());
+    next_source.last_synced_commit = new_commit;
+    next_source.local_path = None; // Ensure no local_path in new design
     settings.backup_source = Some(next_source.clone());
     save_settings(app, &settings)?;
+
     backup_source_status_from_config(&next_source, None)
 }
 
@@ -3037,14 +3023,63 @@ fn normalize_backup_source(
         branch,
         local_path,
         last_synced_at: source.last_synced_at,
+        last_synced_commit: source.last_synced_commit.clone(),
     })
 }
 
-fn source_archives_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())
-        .map(|path| path.join(SOURCE_ARCHIVES_DIR))
+/// Normalize backup source config for temporary worktree approach (no local_path)
+fn normalize_backup_source_for_temp(
+    _app: &tauri::AppHandle,
+    source: &BackupSourceConfig,
+) -> Result<BackupSourceConfig, String> {
+    let repo = {
+        let trimmed = source.repo.trim();
+        if !trimmed.is_empty() {
+            trimmed.trim_end_matches(".git").to_string()
+        } else if let Some(repo) = parse_repo_from_remote_url(&source.remote_url) {
+            repo
+        } else {
+            return Err("backup source repo is required".into());
+        }
+    };
+
+    let label = {
+        let trimmed = source.label.trim();
+        if trimmed.is_empty() {
+            repo.clone()
+        } else {
+            trimmed.to_string()
+        }
+    };
+
+    let remote_url = {
+        let trimmed = source.remote_url.trim();
+        if trimmed.is_empty() {
+            backup_source_remote_url(&repo)
+        } else {
+            trimmed.to_string()
+        }
+    };
+
+    let branch = {
+        let trimmed = source.branch.trim();
+        if trimmed.is_empty() {
+            "main".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    };
+
+    Ok(BackupSourceConfig {
+        enabled: source.enabled,
+        repo,
+        label,
+        remote_url,
+        branch,
+        local_path: None, // No local path in temp worktree approach
+        last_synced_at: source.last_synced_at,
+        last_synced_commit: source.last_synced_commit.clone(),
+    })
 }
 
 fn directory_is_effectively_empty(root: &Path) -> Result<bool, String> {
@@ -3063,69 +3098,6 @@ fn directory_is_effectively_empty(root: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-fn comparable_directory_entries(
-    root: &Path,
-    ignore_git: bool,
-) -> Result<HashMap<String, PathBuf>, String> {
-    let mut entries = HashMap::new();
-    if !root.exists() {
-        return Ok(entries);
-    }
-
-    for entry in fs::read_dir(root).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if ignore_git && name == ".git" {
-            continue;
-        }
-        entries.insert(name, entry.path());
-    }
-
-    Ok(entries)
-}
-
-fn directories_match(left: &Path, right: &Path, ignore_git: bool) -> Result<bool, String> {
-    if !left.exists() || !right.exists() {
-        return Ok(false);
-    }
-
-    let left_entries = comparable_directory_entries(left, ignore_git)?;
-    let right_entries = comparable_directory_entries(right, ignore_git)?;
-    if left_entries.len() != right_entries.len() {
-        return Ok(false);
-    }
-
-    for (name, left_path) in left_entries {
-        let Some(right_path) = right_entries.get(&name) else {
-            return Ok(false);
-        };
-
-        let left_meta = fs::symlink_metadata(&left_path).map_err(|error| error.to_string())?;
-        let right_meta = fs::symlink_metadata(right_path).map_err(|error| error.to_string())?;
-        let left_is_dir = left_meta.file_type().is_dir();
-        let right_is_dir = right_meta.file_type().is_dir();
-
-        if left_is_dir != right_is_dir {
-            return Ok(false);
-        }
-
-        if left_is_dir {
-            if !directories_match(&left_path, right_path, ignore_git)? {
-                return Ok(false);
-            }
-            continue;
-        }
-
-        if fs::read(&left_path).map_err(|error| error.to_string())?
-            != fs::read(right_path).map_err(|error| error.to_string())?
-        {
-            return Ok(false);
-        }
-    }
-
-    Ok(true)
-}
-
 fn build_backup_source_notice(notices: Vec<String>) -> Option<String> {
     let joined = notices
         .into_iter()
@@ -3136,81 +3108,82 @@ fn build_backup_source_notice(notices: Vec<String>) -> Option<String> {
     (!joined.is_empty()).then_some(joined)
 }
 
-fn legacy_backup_source_paths(
-    app: &tauri::AppHandle,
-    source: &BackupSourceConfig,
-    repo: &str,
-    canonical_path: &Path,
-) -> Result<Vec<PathBuf>, String> {
-    let mut candidates = Vec::new();
-    let live_skill_sources = skill_sources_dir(app)?;
-
-    if let Some(path) = source
-        .local_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-    {
-        let normalized = normalize_user_path(path)?;
-        if normalized != canonical_path && normalized != live_skill_sources {
-            candidates.push(normalized);
-        }
-    }
-
-    let legacy_path = backup_source_repo_dir(app, repo)?;
-    if legacy_path != canonical_path && !candidates.contains(&legacy_path) {
-        candidates.push(legacy_path);
-    }
-
-    Ok(candidates)
+fn connected_repo_root_if_available(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    let mut state = load_local_state(app)?;
+    ensure_local_library_repo_root(app, &mut state).map(Some)
 }
 
-fn adopt_legacy_backup_source_repo(
-    app: &tauri::AppHandle,
-    source: &BackupSourceConfig,
-    normalized: &BackupSourceConfig,
-    canonical_path: &Path,
-) -> Result<Option<String>, String> {
-    for legacy_path in legacy_backup_source_paths(app, source, &normalized.repo, canonical_path)? {
-        if !legacy_path.exists() || !legacy_path.is_dir() || !git::is_git_repo(&legacy_path) {
-            continue;
-        }
+// ─── Temporary Backup Worktree (RAII) ─────────────────────────────────────────────
 
-        let can_adopt = !canonical_path.exists()
-            || directory_is_effectively_empty(canonical_path)?
-            || directories_match(&legacy_path, canonical_path, true)?;
-        if !can_adopt {
-            continue;
-        }
-
-        if canonical_path.exists() {
-            remove_path(canonical_path)?;
-        }
-        if let Some(parent) = canonical_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-
-        fs::rename(&legacy_path, canonical_path).map_err(|error| error.to_string())?;
-        return Ok(Some(
-            "已将旧 backup-source 工作树收敛到 skill-sources".into(),
-        ));
-    }
-
-    Ok(None)
+/// RAII-style guard for temporary backup worktree cleanup.
+/// Ensures cleanup happens even on error via Drop trait.
+struct TempBackupWorktree {
+    path: PathBuf,
+    cleaned: bool,
 }
 
-fn cleanup_legacy_backup_source_paths(
-    app: &tauri::AppHandle,
-    source: &BackupSourceConfig,
-    normalized: &BackupSourceConfig,
-    canonical_path: &Path,
-) -> Result<(), String> {
-    for legacy_path in legacy_backup_source_paths(app, source, &normalized.repo, canonical_path)? {
-        if legacy_path.exists() {
-            remove_path(&legacy_path)?;
+impl TempBackupWorktree {
+    fn new(path: PathBuf) -> Self {
+        Self { path, cleaned: false }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn cleanup(&mut self) -> Result<(), String> {
+        if self.cleaned {
+            return Ok(());
+        }
+        self.cleaned = true;
+        remove_path(&self.path)
+    }
+}
+
+impl Drop for TempBackupWorktree {
+    fn drop(&mut self) {
+        if !self.cleaned {
+            // Attempt cleanup on drop, log error if fails silently
+            let _ = remove_path(&self.path);
         }
     }
-    Ok(())
+}
+
+/// Create a temporary backup worktree for push/pull operations.
+/// Uses shallow clone (--depth 1) for speed.
+fn create_temp_backup_worktree(
+    app: &tauri::AppHandle,
+    config: &BackupSourceConfig,
+) -> Result<TempBackupWorktree, String> {
+    let temp_path = temp_backup_source_clone_dir(app, &config.repo)?;
+
+    // Remove any existing temp directory
+    if temp_path.exists() {
+        remove_path(&temp_path)?;
+    }
+
+    // Create parent directory
+    if let Some(parent) = temp_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+
+    // Check if remote branch exists
+    let remote_has_branch = git::remote_branch_exists(&config.remote_url, &config.branch)?;
+
+    if remote_has_branch {
+        // Shallow clone from remote
+        git::shallow_clone(&config.remote_url, &temp_path, Some(&config.branch))?;
+        git::configure_identity(&temp_path)?;
+    } else {
+        // Initialize empty repo for first push
+        fs::create_dir_all(&temp_path).map_err(|error| error.to_string())?;
+        git::init_repository(&temp_path)?;
+        git::configure_identity(&temp_path)?;
+        git::checkout_branch(&temp_path, &config.branch)?;
+        git::add_remote(&temp_path, "origin", &config.remote_url)?;
+    }
+
+    Ok(TempBackupWorktree::new(temp_path))
 }
 
 fn temp_backup_source_clone_dir(app: &tauri::AppHandle, repo: &str) -> Result<PathBuf, String> {
@@ -3220,173 +3193,23 @@ fn temp_backup_source_clone_dir(app: &tauri::AppHandle, repo: &str) -> Result<Pa
         .map(|path| path.join(format!(".tmp-backup-source-{}-{}", slugify(repo), now_ms())))
 }
 
-fn archive_skill_sources_dir(
-    app: &tauri::AppHandle,
-    root: &Path,
-) -> Result<Option<PathBuf>, String> {
-    if !root.exists() {
-        return Ok(None);
-    }
-
-    let archive_root = source_archives_dir(app)?;
-    fs::create_dir_all(&archive_root).map_err(|error| error.to_string())?;
-    let archive_path = archive_root.join(format!("skill-sources-{}", now_ms()));
-    fs::rename(root, &archive_path).map_err(|error| error.to_string())?;
-    Ok(Some(archive_path))
-}
-
-fn ensure_backup_source_origin(path: &Path, remote_url: &str) -> Result<(), String> {
-    match git::remote_url(path, "origin")? {
-        Some(existing) if existing == remote_url => Ok(()),
-        Some(_) => git::set_remote_url(path, "origin", remote_url),
-        None => git::add_remote(path, "origin", remote_url),
-    }
-}
-
-fn initialize_backup_source_repo(
-    path: &Path,
-    normalized: &BackupSourceConfig,
-) -> Result<(), String> {
-    fs::create_dir_all(path).map_err(|error| error.to_string())?;
-    if !git::is_git_repo(path) {
-        git::init_repository(path)?;
-    }
-    ensure_backup_source_origin(path, &normalized.remote_url)?;
-    git::configure_identity(path)?;
-    git::checkout_branch(path, &normalized.branch)?;
-    Ok(())
-}
-
-fn attach_clone_git_metadata(target: &Path, cloned_repo: &Path) -> Result<(), String> {
-    let cloned_git_dir = cloned_repo.join(".git");
-    let target_git_dir = target.join(".git");
-    if target_git_dir.exists() {
-        remove_path(&target_git_dir)?;
-    }
-    fs::rename(&cloned_git_dir, &target_git_dir).map_err(|error| error.to_string())?;
-    remove_path(cloned_repo)?;
-    Ok(())
-}
-
-fn connected_repo_root_if_available(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
-    let mut state = load_local_state(app)?;
-    ensure_local_library_repo_root(app, &mut state).map(Some)
-}
-
-fn prepare_backup_source_worktree(
-    app: &tauri::AppHandle,
-    raw_source: &BackupSourceConfig,
-    normalized: &BackupSourceConfig,
-) -> Result<Option<String>, String> {
-    let worktree = PathBuf::from(
-        normalized
-            .local_path
-            .clone()
-            .ok_or_else(|| "backup source local path missing".to_string())?,
-    );
-    let mut notices = Vec::new();
-
-    if worktree.exists() && !worktree.is_dir() {
-        remove_path(&worktree)?;
-    }
-
-    if let Some(notice) = adopt_legacy_backup_source_repo(app, raw_source, normalized, &worktree)? {
-        notices.push(notice);
-    }
-
-    if worktree.exists() && git::is_git_repo(&worktree) {
-        ensure_backup_source_origin(&worktree, &normalized.remote_url)?;
-        git::configure_identity(&worktree)?;
-        cleanup_legacy_backup_source_paths(app, raw_source, normalized, &worktree)?;
-        notices.extend(detach_backup_git_metadata_from_live_skill_sources(app)?);
-        return Ok(build_backup_source_notice(notices));
-    }
-
-    let remote_has_branch = git::remote_branch_exists(&normalized.remote_url, &normalized.branch)?;
-    if !worktree.exists() || directory_is_effectively_empty(&worktree)? {
-        if worktree.exists() {
-            remove_path(&worktree)?;
-        }
-
-        if remote_has_branch {
-            git::clone_repository(&normalized.remote_url, &worktree, Some(&normalized.branch))?;
-        } else {
-            ensure_managed_skills_materialized(app)?;
-            initialize_backup_source_repo(&worktree, normalized)?;
-        }
-
-        ensure_backup_source_origin(&worktree, &normalized.remote_url)?;
-        git::configure_identity(&worktree)?;
-        cleanup_legacy_backup_source_paths(app, raw_source, normalized, &worktree)?;
-        notices.extend(detach_backup_git_metadata_from_live_skill_sources(app)?);
-        return Ok(build_backup_source_notice(notices));
-    }
-
-    ensure_managed_skills_materialized(app)?;
-    if remote_has_branch {
-        let temp_clone_dir = temp_backup_source_clone_dir(app, &normalized.repo)?;
-        if temp_clone_dir.exists() {
-            remove_path(&temp_clone_dir)?;
-        }
-
-        git::clone_repository(
-            &normalized.remote_url,
-            &temp_clone_dir,
-            Some(&normalized.branch),
-        )?;
-
-        if directories_match(&worktree, &temp_clone_dir, true)? {
-            attach_clone_git_metadata(&worktree, &temp_clone_dir)?;
-            notices.push("已把远端 Git 元数据接入备份源独立工作树".into());
-        } else {
-            let archived_path = archive_skill_sources_dir(app, &worktree)?
-                .ok_or_else(|| "failed to archive local skill sources".to_string())?;
-            fs::rename(&temp_clone_dir, &worktree).map_err(|error| error.to_string())?;
-            notices.push(format!(
-                "本地旧的备份源工作树已归档到 {}，当前已切换为远端工作树",
-                archived_path.display()
-            ));
-        }
-    } else {
-        initialize_backup_source_repo(&worktree, normalized)?;
-    }
-
-    ensure_backup_source_origin(&worktree, &normalized.remote_url)?;
-    git::configure_identity(&worktree)?;
-    cleanup_legacy_backup_source_paths(app, raw_source, normalized, &worktree)?;
-    notices.extend(detach_backup_git_metadata_from_live_skill_sources(app)?);
-    Ok(build_backup_source_notice(notices))
-}
-
 fn backup_source_status_from_config(
     config: &BackupSourceConfig,
     notice: Option<String>,
 ) -> Result<BackupSourceStatus, String> {
-    let local_path = config
-        .local_path
-        .as_ref()
-        .map(|path| normalize_user_path(path))
-        .transpose()?;
-
-    let connected = local_path
-        .as_ref()
-        .map(|path| path.exists() && path.is_dir())
-        .unwrap_or(false);
+    // New approach: status is computed without local worktree
+    // Use last_synced_commit to determine ahead/behind status
     let git_available = git::git_available();
-    let is_git_repo = local_path
-        .as_ref()
-        .map(|path| path.is_dir() && git::is_git_repo(path))
-        .unwrap_or(false);
-    let head = local_path.as_ref().and_then(|path| git::head(path));
-    let (ahead, behind) = local_path
-        .as_ref()
-        .filter(|path| path.is_dir() && git::is_git_repo(path))
-        .map(|path| git::ahead_behind(path))
-        .unwrap_or((0, 0));
-    let dirty = local_path
-        .as_ref()
-        .map(|path| path.is_dir() && git::dirty(path))
-        .unwrap_or(false);
+
+    // Try to get remote branch hash for ahead/behind calculation
+    let remote_head = if git_available {
+        git::fetch_remote_branch_hash(&config.remote_url, &config.branch).ok().flatten()
+    } else {
+        None
+    };
+
+    // Compute ahead/behind based on last_synced_commit vs remote_head
+    let (ahead, behind) = compute_ahead_behind_from_remote(config, remote_head.as_deref());
 
     Ok(BackupSourceStatus {
         enabled: config.enabled,
@@ -3394,17 +3217,45 @@ fn backup_source_status_from_config(
         label: config.label.clone(),
         remote_url: config.remote_url.clone(),
         branch: config.branch.clone(),
-        local_path: local_path.map(|path| path.to_string_lossy().into_owned()),
+        local_path: None, // No longer maintain a local worktree
         last_synced_at: config.last_synced_at,
-        connected,
+        last_synced_commit: config.last_synced_commit.clone(),
+        connected: false, // No persistent connection in new design
         git_available,
-        is_git_repo,
-        head,
+        is_git_repo: false, // No local repo
+        head: None,         // No local repo
         ahead,
         behind,
-        dirty,
+        dirty: false, // No local repo
         notice,
     })
+}
+
+/// Compute ahead/behind status by comparing last_synced_commit with remote HEAD.
+/// - ahead: local has changes since last sync (we don't track this precisely, assume 0)
+/// - behind: remote has new commits since last sync
+fn compute_ahead_behind_from_remote(config: &BackupSourceConfig, remote_head: Option<&str>) -> (usize, usize) {
+    // If we have no remote head, we can't compute
+    if remote_head.is_none() {
+        return (0, 0);
+    }
+    let remote_head = remote_head.unwrap();
+
+    // If we have never synced, assume we are behind (need to pull)
+    if config.last_synced_commit.is_none() {
+        return (0, 1);
+    }
+    let last_synced = config.last_synced_commit.as_deref().unwrap();
+
+    // Simple comparison: if hashes differ, we are behind
+    // More precise calculation would require fetching commit history
+    if last_synced != remote_head {
+        // Assume we are behind by at least 1 commit
+        // In practice, user should pull to sync
+        (0, 1)
+    } else {
+        (0, 0)
+    }
 }
 
 fn backup_source_settings(app: &tauri::AppHandle) -> Result<Option<BackupSourceConfig>, String> {
@@ -4333,52 +4184,11 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
-fn pick_skill_import_path(_app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
-    let script = r#"
-ObjC.import('AppKit');
-const panel = $.NSOpenPanel.openPanel;
-panel.setCanChooseFiles(true);
-panel.setCanChooseDirectories(true);
-panel.setAllowsMultipleSelection(false);
-panel.setCanCreateDirectories(false);
-panel.setResolvesAliases(true);
-panel.setTitle('选择 Skill 文件夹或 ZIP 包');
-panel.setPrompt('导入');
-
-if (panel.runModal() === $.NSModalResponseOK) {
-  const url = panel.URL;
-  if (url) {
-    console.log(ObjC.unwrap(url.path));
-  }
-}
-"#;
-
-    let output = Command::new("osascript")
-        .args(["-l", "JavaScript", "-e", script])
-        .output()
-        .map_err(|error| format!("打开导入选择器失败：{}", error))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if stderr.is_empty() {
-            return Ok(None);
-        }
-        return Err(format!("打开导入选择器失败：{}", stderr));
-    }
-
-    let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if selected.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(PathBuf::from(selected)))
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
+/// Pick a skill import path using tauri_plugin_dialog (works on all platforms)
 fn pick_skill_import_path(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
     use tauri_plugin_dialog::DialogExt;
 
+    // First try to pick a folder
     if let Some(folder) = app
         .dialog()
         .file()
@@ -4391,6 +4201,7 @@ fn pick_skill_import_path(app: &tauri::AppHandle) -> Result<Option<PathBuf>, Str
             .map_err(|error| format!("读取目录路径失败：{}", error));
     }
 
+    // If folder picker was cancelled, try to pick a file (ZIP or SKILL.md)
     if let Some(file) = app
         .dialog()
         .file()
