@@ -6,7 +6,7 @@ import {
 import { useSkills } from "../context/SkillContext";
 import { useSource } from "../context/SourceContext";
 import { useSettings } from "../context/SettingsContext";
-import { BACKUP_SOURCE_REPO_ID } from "../services/backupSource";
+import { BACKUP_SOURCE_REPO_ID, backupSourcePull } from "../services/backupSource";
 import { skillImportFromMarket } from "../services/marketplace";
 import {
   registryFetchContent,
@@ -493,6 +493,38 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
       return;
     }
 
+    // Handle backup source sync
+    if (isBackup) {
+      setSyncing(true);
+      const result = await backupSourcePull();
+      setSyncing(false);
+
+      if (!result.ok) {
+        setToast(`同步失败：${result.error}`);
+        setTimeout(() => setToast(null), 2400);
+        return;
+      }
+
+      // Update backup source settings with new sync info
+      const saved = await updateSettings({
+        backupSource: settings.backupSource ? {
+          ...settings.backupSource,
+          lastSyncedAt: Date.now(),
+          lastSyncedCommit: result.value.lastSyncedCommit ?? null,
+        } : null,
+      });
+      if (!saved) {
+        setToast("备份源信息保存失败");
+        setTimeout(() => setToast(null), 2400);
+        return;
+      }
+
+      refresh(repoId);
+      setToast(`已同步备份源`);
+      setTimeout(() => setToast(null), 2400);
+      return;
+    }
+
     const repo = settings.thirdPartyRepos?.find((item) => item.id === repoId);
     if (!repo) return;
 
@@ -520,7 +552,7 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
     refresh(repoId);
     setToast(`已同步 ${result.value.label}`);
     setTimeout(() => setToast(null), 2400);
-  }, [refresh, repoId, settings.thirdPartyRepos, updateSettings, isMarket]);
+  }, [refresh, repoId, settings.thirdPartyRepos, settings.backupSource, updateSettings, isMarket, isBackup]);
 
   // Debounced search for market source
   const handleSearchChange = useCallback((value: string) => {
