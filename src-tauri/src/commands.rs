@@ -337,6 +337,46 @@ pub fn skill_show_in_finder(app: tauri::AppHandle, skill_id: String) -> Result<(
     open_in_system_file_manager(&path)
 }
 
+#[tauri::command]
+pub fn open_with_typora(app: tauri::AppHandle, skill_id: String) -> Result<(), String> {
+    let skill_dir = store::skill_source_dir_by_id(&app, &skill_id)?;
+    let skill_md_path = skill_dir.join("SKILL.md");
+    if !skill_md_path.exists() {
+        return Err("SKILL.md 文件不存在".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-a")
+            .arg("Typora")
+            .arg(&skill_md_path)
+            .spawn()
+            .map_err(|e| format!("failed to open Typora: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("start")
+            .arg("Typora")
+            .arg(&skill_md_path)
+            .spawn()
+            .map_err(|e| format!("failed to open Typora: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("typora")
+            .arg(&skill_md_path)
+            .spawn()
+            .map_err(|e| format!("failed to open Typora: {}", e))?;
+    }
+
+    Ok(())
+}
+
 fn open_in_system_file_manager(target_path: &Path) -> Result<(), String> {
     // Use system `open -R` command which is more stable than showfile crate
     #[cfg(target_os = "macos")]

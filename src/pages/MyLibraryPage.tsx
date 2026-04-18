@@ -10,7 +10,6 @@ import {
   Globe,
   Folder,
   Plus,
-  Check,
   AlertTriangle,
   FolderOpen,
   Loader,
@@ -41,7 +40,7 @@ import {
   skillListDirectory,
   skillReadFile,
   skillShowInFinder,
-  formatSkillOperationError,
+  openWithTypora,
 } from "../services/skill";
 import { IconButton } from "../components/ui/IconButton";
 import type { Skill, ThirdPartyRepo, SkillDirectoryListing, SkillDirectoryEntry, SkillFileContent, ExternalSkill } from "../types";
@@ -322,7 +321,6 @@ interface ProjectEnableState {
 // ── Detail Panel Tabs ────────────────────────────────────────────────────────
 type Tab = "enable" | "skillmd" | "files";
 type LibraryGroupTab = "self-created" | "third-party" | "external";
-type DetailLeaveGuard = () => boolean;
 
 // ── File icon based on extension ─────────────────────────────────────────────
 function getFileIcon(entry: SkillDirectoryEntry): React.ReactNode {
@@ -549,21 +547,13 @@ function DetailPanel({
   skill,
   onDelete,
   onExport,
-  onRegisterLeaveGuard,
 }: {
   skill: Skill;
   onDelete: () => void;
   onExport: () => void;
-  onRegisterLeaveGuard: (guard: DetailLeaveGuard | null) => void;
 }) {
-  const { update } = useSkills();
   const [tab, setTab] = useState<Tab>("enable");
-  const [copied, setCopied] = useState(false);
   const [previewingFile, setPreviewingFile] = useState<string | null>(null);
-  const [isEditingSkillMd, setIsEditingSkillMd] = useState(false);
-  const [draftContent, setDraftContent] = useState(skill.content);
-  const [isSkillMdDirty, setIsSkillMdDirty] = useState(false);
-  const [isSavingSkillMd, setIsSavingSkillMd] = useState(false);
   const iconColors = getIconColors(skill.name);
   const initial = skill.name.charAt(0).toUpperCase();
   const toast = useToast();
@@ -604,98 +594,14 @@ function DetailPanel({
     });
   };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(skill.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
-  };
-
-  const confirmDiscardSkillMdChanges = useCallback(() => {
-    if (!isEditingSkillMd || !isSkillMdDirty) {
-      return true;
-    }
-
-    return window.confirm("SKILL.md 有未保存的修改，确定要丢弃吗？");
-  }, [isEditingSkillMd, isSkillMdDirty]);
-
-  useEffect(() => {
-    onRegisterLeaveGuard(confirmDiscardSkillMdChanges);
-    return () => onRegisterLeaveGuard(null);
-  }, [confirmDiscardSkillMdChanges, onRegisterLeaveGuard]);
-
   useEffect(() => {
     setTab("enable");
-    setCopied(false);
     setPreviewingFile(null);
-    setIsEditingSkillMd(false);
-    setDraftContent(skill.content);
-    setIsSkillMdDirty(false);
-    setIsSavingSkillMd(false);
   }, [skill.id]);
-
-  const handleSkillMdDraftChange = (value: string) => {
-    setDraftContent(value);
-    setIsSkillMdDirty(value !== skill.content);
-  };
-
-  const handleStartSkillMdEditing = () => {
-    setDraftContent(skill.content);
-    setIsSkillMdDirty(false);
-    setIsEditingSkillMd(true);
-  };
-
-  const handleCancelSkillMdEditing = () => {
-    if (!confirmDiscardSkillMdChanges()) {
-      return;
-    }
-
-    setDraftContent(skill.content);
-    setIsSkillMdDirty(false);
-    setIsEditingSkillMd(false);
-  };
-
-  const handleSaveSkillMd = async () => {
-    if (isSavingSkillMd) {
-      return;
-    }
-
-    if (!isSkillMdDirty) {
-      setIsEditingSkillMd(false);
-      return;
-    }
-
-    setIsSavingSkillMd(true);
-    const tid = toast.loading("正在保存 SKILL.md…");
-    const result = await update({
-      id: skill.id,
-      content: draftContent,
-    });
-    setIsSavingSkillMd(false);
-
-    if (result.ok) {
-      setDraftContent(result.value.content);
-      setIsSkillMdDirty(false);
-      setIsEditingSkillMd(false);
-      toast.resolve(tid, "success", "SKILL.md 已保存");
-      return;
-    }
-
-    toast.resolve(tid, "error", formatSkillOperationError(result.error, "保存"));
-  };
 
   const handleTabChange = (nextTab: Tab) => {
     if (nextTab === tab) {
       return;
-    }
-
-    if (!confirmDiscardSkillMdChanges()) {
-      return;
-    }
-
-    if (isEditingSkillMd) {
-      setDraftContent(skill.content);
-      setIsSkillMdDirty(false);
-      setIsEditingSkillMd(false);
     }
 
     setTab(nextTab);
@@ -971,56 +877,17 @@ function DetailPanel({
             <div className={s.skillmdHeader}>
               <div className={s.skillmdMeta}>
                 <span className={s.skillmdFilename}>SKILL.md</span>
-                {isEditingSkillMd && isSkillMdDirty && (
-                  <span className={s.skillmdStatus}>未保存</span>
-                )}
               </div>
               <div className={s.skillmdActions}>
-                {isEditingSkillMd ? (
-                  <>
-                    <button
-                      className={`${s.skillmdActionBtn} ${s.skillmdActionSecondary}`}
-                      onClick={handleCancelSkillMdEditing}
-                      disabled={isSavingSkillMd}
-                    >
-                      取消
-                    </button>
-                    <button
-                      className={`${s.skillmdActionBtn} ${s.skillmdActionPrimary}`}
-                      onClick={handleSaveSkillMd}
-                      disabled={isSavingSkillMd || !isSkillMdDirty}
-                    >
-                      {isSavingSkillMd ? <><Loader size={12} className={s.btnSpin} /> 保存中</> : "保存"}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      className={`${s.skillmdActionBtn} ${s.skillmdActionSecondary}`}
-                      onClick={handleStartSkillMdEditing}
-                    >
-                      编辑
-                    </button>
-                    <button
-                      className={`${s.skillmdActionBtn} ${s.skillmdActionPrimary}`}
-                      onClick={handleCopy}
-                    >
-                      {copied ? <><Check size={12} /> 已复制</> : "复制"}
-                    </button>
-                  </>
-                )}
+                <button
+                  className={`${s.skillmdActionBtn} ${s.skillmdActionPrimary}`}
+                  onClick={() => openWithTypora(skill.id)}
+                >
+                  用Typora打开
+                </button>
               </div>
             </div>
-            {isEditingSkillMd ? (
-              <textarea
-                className={s.skillmdEditor}
-                value={draftContent}
-                onChange={(e) => handleSkillMdDraftChange(e.target.value)}
-                spellCheck={false}
-              />
-            ) : (
-              <pre className={s.skillmdCode}>{skill.content}</pre>
-            )}
+            <pre className={s.skillmdCode}>{skill.content}</pre>
           </div>
         )}
 
@@ -1082,7 +949,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
   const [loadingExternalPreview, setLoadingExternalPreview] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const detailLeaveGuardRef = useRef<DetailLeaveGuard | null>(null);
 
   // Debounced search (300ms)
   useEffect(() => {
@@ -1315,25 +1181,13 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
     [collapsedGroups, isSearching]
   );
 
-  const registerDetailLeaveGuard = useCallback((guard: DetailLeaveGuard | null) => {
-    detailLeaveGuardRef.current = guard;
-  }, []);
-
-  const canLeaveDetail = useCallback(() => {
-    return detailLeaveGuardRef.current?.() ?? true;
-  }, []);
-
   const handleSelectManagedSkill = useCallback((skillId: string) => {
     if (skillId === selectedId) {
       return;
     }
 
-    if (!canLeaveDetail()) {
-      return;
-    }
-
     setSelectedId(skillId);
-  }, [canLeaveDetail, selectedId]);
+  }, [selectedId]);
 
   const thirdPartyGroups = (() => {
     const grouped = new Map<string, Skill[]>();
@@ -1510,7 +1364,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
             skill={selectedSkill}
             onDelete={handleDelete}
             onExport={handleExport}
-            onRegisterLeaveGuard={registerDetailLeaveGuard}
           />
         )}
         {!selectedSkill && activeLibraryTab === "external" && selectedExternal && (

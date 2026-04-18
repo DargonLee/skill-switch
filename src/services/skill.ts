@@ -271,3 +271,11 @@ export async function scanExternalSkills(
 ): Promise<Result<import("../types").ExternalSkill[]>> {
   return tauriInvoke<import("../types").ExternalSkill[]>("scan_external_skills", { appId });
 }
+
+/**
+ * Open a skill's SKILL.md file with Typora
+ * Maps to backend: open_with_typora(skill_id) -> ()
+ */
+export async function openWithTypora(skillId: string): Promise<Result<void>> {
+  return tauriInvoke<void>("open_with_typora", { skillId });
+}
