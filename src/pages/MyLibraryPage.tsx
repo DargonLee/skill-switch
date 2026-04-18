@@ -4,7 +4,6 @@ import { readDir } from "@tauri-apps/plugin-fs";
 import {
   X,
   Search,
-  Camera,
   Trash2,
   GitBranch,
   Clock,
@@ -548,13 +547,11 @@ function FilePreview({
 
 function DetailPanel({
   skill,
-  onSnapshot,
   onDelete,
   onExport,
   onRegisterLeaveGuard,
 }: {
   skill: Skill;
-  onSnapshot: () => void;
   onDelete: () => void;
   onExport: () => void;
   onRegisterLeaveGuard: (guard: DetailLeaveGuard | null) => void;
@@ -859,12 +856,6 @@ function DetailPanel({
               aria-label="导出 ZIP"
             />
             <IconButton
-              icon={<Camera size={16} />}
-              title="手动备份快照"
-              onClick={onSnapshot}
-              aria-label="手动备份快照"
-            />
-            <IconButton
               icon={<Trash2 size={16} />}
               variant="danger"
               title="卸载"
@@ -1115,10 +1106,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
   const selectedExternal = activeLibraryTab === "external" && selectedExternalKey
     ? externalSkills.find((sk) => `${sk.appId}:${sk.slug}` === selectedExternalKey) ?? null
     : null;
-
-  const handleSnapshot = useCallback(() => {
-    if (selectedSkill) toast.success(`「${selectedSkill.name}」快照已保存！`);
-  }, [selectedSkill, toast]);
 
   const handleDelete = useCallback(async () => {
     if (selectedSkill) {
@@ -1521,7 +1508,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
           <DetailPanel
             key={selectedSkill.id}
             skill={selectedSkill}
-            onSnapshot={handleSnapshot}
             onDelete={handleDelete}
             onExport={handleExport}
             onRegisterLeaveGuard={registerDetailLeaveGuard}
