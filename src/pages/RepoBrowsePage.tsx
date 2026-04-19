@@ -315,7 +315,7 @@ function MarketPreviewModal({
 }
 
 export function RepoBrowsePage({ repoId }: { repoId: string }) {
-  const { skills: installedSkills, create } = useSkills();
+  const { skills: installedSkills, create, refresh: refreshSkills } = useSkills();
   const { sourceStates, marketState, registryState, searchRegistry, refresh, loadMoreMarket, searchMarket, isMarketSource, isRegistrySource } = useSource();
   const { settings, updateSettings } = useSettings();
   const [search, setSearch] = useState("");
@@ -520,6 +520,7 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
       }
 
       refresh(repoId);
+      await refreshSkills();
       setToast(`已同步备份源`);
       setTimeout(() => setToast(null), 2400);
       return;
@@ -552,7 +553,7 @@ export function RepoBrowsePage({ repoId }: { repoId: string }) {
     refresh(repoId);
     setToast(`已同步 ${result.value.label}`);
     setTimeout(() => setToast(null), 2400);
-  }, [refresh, repoId, settings.thirdPartyRepos, settings.backupSource, updateSettings, isMarket, isBackup]);
+  }, [refresh, refreshSkills, repoId, settings.thirdPartyRepos, settings.backupSource, updateSettings, isMarket, isBackup]);
 
   // Debounced search for market source
   const handleSearchChange = useCallback((value: string) => {

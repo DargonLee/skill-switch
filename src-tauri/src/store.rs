@@ -520,6 +520,125 @@ fn load_repo_library_for_legacy_skills(
     load_repo_library(repo_root)
 }
 
+fn reconcile_managed_skills_from_backup_clone(clone_dir: &Path) -> Result<bool, String> {
+    if !clone_dir.exists() || !clone_dir.is_dir() {
+        return Ok(false);
+    }
+
+    let mut library = load_repo_library(clone_dir)?;
+    let mut source_skills = Vec::new();
+
+    for entry in fs::read_dir(clone_dir).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let slug = entry.file_name().to_string_lossy().into_owned();
+        if slug.starts_with('.') {
+            continue;
+        }
+
+        let skill_file = path.join("SKILL.md");
+        if !skill_file.exists() {
+            continue;
+        }
+
+        let content = match fs::read_to_string(&skill_file) {
+            Ok(content) => content,
+            Err(_) => continue,
+        };
+
+        source_skills.push((slug, content));
+    }
+
+    let now = now_ms();
+    let mut changed = false;
+    let mut seen_slugs = HashSet::new();
+
+    for (slug, content) in source_skills {
+        seen_slugs.insert(slug.clone());
+
+        if let Some(resource) = library
+            .resources
+            .iter_mut()
+            .find(|resource| is_managed_skill_resource(resource) && resource.slug == slug)
+        {
+            let (next_name, next_description, next_tags) =
+                derive_skill_source_metadata(&slug, &content, Some(resource.tags.as_slice()));
+            let next_description = next_description.or_else(|| resource.description.clone());
+            let next_revision = compute_revision(&content);
+
+            if resource.title != next_name
+                || resource.description != next_description
+                || resource.content != content
+                || resource.tags != next_tags
+                || resource.revision != next_revision
+            {
+                resource.title = next_name;
+                resource.description = next_description;
+                resource.content = content;
+                resource.tags = next_tags;
+                resource.revision = next_revision;
+                resource.updated_at = now;
+                changed = true;
+            }
+
+            continue;
+        }
+
+        let (name, description, tags) = derive_skill_source_metadata(&slug, &content, None);
+        library.resources.push(Resource {
+            id: Uuid::new_v4().to_string(),
+            slug,
+            title: name,
+            description,
+            kind: ResourceKind::Skill,
+            scope: ResourceScope::Global,
+            origin: ResourceOrigin::Private,
+            source_status: SourceStatus::LocalOnly,
+            project_id: None,
+            tags,
+            revision: compute_revision(&content),
+            content,
+            source_url: None,
+            source_ref: None,
+            source_path: None,
+            upstream_revision: None,
+            forked_from: None,
+            created_at: now,
+            updated_at: now,
+            provenance: Default::default(),
+        });
+        changed = true;
+    }
+
+    let removed_ids: Vec<String> = library
+        .resources
+        .iter()
+        .filter(|resource| is_managed_skill_resource(resource) && !seen_slugs.contains(&resource.slug))
+        .map(|resource| resource.id.clone())
+        .collect();
+
+    if !removed_ids.is_empty() {
+        let removed_ids: HashSet<String> = removed_ids.into_iter().collect();
+        library
+            .resources
+            .retain(|resource| !removed_ids.contains(&resource.id));
+        for resource_id in &removed_ids {
+            detach_resource_from_all_profiles(&mut library.project_profiles, resource_id);
+        }
+        changed = true;
+    }
+
+    if changed {
+        save_repo_library(clone_dir, &library)?;
+    }
+
+    Ok(changed)
+}
+
 fn parse_skill_front_matter(content: &str) -> (Option<String>, Option<String>, Vec<String>) {
     let Some(rest) = content.strip_prefix("---\n") else {
         return (None, None, vec![]);
@@ -1488,6 +1607,8 @@ pub fn backup_source_connect(app: &tauri::AppHandle) -> Result<BackupSourceStatu
         migrate_skill_sources_to_clone(&old_sources, &clone_dir)?;
     }
 
+    reconcile_managed_skills_from_backup_clone(&clone_dir)?;
+
     // Commit any changes from migration
     let _ = git::add_all(&clone_dir);
     let _ = git::commit(&clone_dir, "SkillSwitch: initial sync");
@@ -1527,6 +1648,7 @@ pub fn backup_source_pull(app: &tauri::AppHandle) -> Result<BackupSourceStatus, 
     }
 
     git::pull(&clone_dir)?;
+    reconcile_managed_skills_from_backup_clone(&clone_dir)?;
 
     // Update settings
     let new_commit = git::head(&clone_dir);
@@ -1629,6 +1751,7 @@ pub fn backup_source_startup_sync(app: &tauri::AppHandle) -> Result<(), String> 
         if clone_dir.exists() && git::is_git_repo(&clone_dir) {
             // Best effort pull on startup
             let _ = git::pull(&clone_dir);
+            let _ = reconcile_managed_skills_from_backup_clone(&clone_dir);
         }
     }
 
@@ -4271,6 +4394,93 @@ mod tests {
 
         assert!(names.contains(&"demo-skill/SKILL.md".to_string()));
         assert!(names.contains(&"demo-skill/scripts/".to_string()));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reconcile_backup_clone_imports_updates_and_removes_managed_skills() {
+        let root = make_temp_path("reconcile-backup-clone");
+        fs::create_dir_all(&root).expect("temp root should be created");
+
+        let legacy_skill_dir = root.join("legacy-skill");
+        fs::create_dir_all(&legacy_skill_dir).expect("legacy skill dir should exist");
+        fs::write(
+            legacy_skill_dir.join("SKILL.md"),
+            "---\nname: Legacy Skill\ndescription: Pulled from backup\ntags: [backup]\n---\n# Legacy Skill\n\nPulled from backup\n",
+        )
+        .expect("legacy skill should be written");
+
+        let stale_skill = Resource {
+            id: "stale-id".into(),
+            slug: "stale-skill".into(),
+            title: "Stale Skill".into(),
+            description: Some("stale".into()),
+            kind: ResourceKind::Skill,
+            scope: ResourceScope::Global,
+            origin: ResourceOrigin::Private,
+            source_status: SourceStatus::LocalOnly,
+            project_id: None,
+            tags: vec!["old".into()],
+            content: "# Stale Skill".into(),
+            revision: "old-revision".into(),
+            source_url: None,
+            source_ref: None,
+            source_path: None,
+            upstream_revision: None,
+            forked_from: None,
+            created_at: 1,
+            updated_at: 1,
+            provenance: Default::default(),
+        };
+
+        let kept_skill = Resource {
+            id: "kept-id".into(),
+            slug: "legacy-skill".into(),
+            title: "Old Name".into(),
+            description: Some("old description".into()),
+            kind: ResourceKind::Skill,
+            scope: ResourceScope::Global,
+            origin: ResourceOrigin::Private,
+            source_status: SourceStatus::LocalOnly,
+            project_id: None,
+            tags: vec!["old".into()],
+            content: "# Old Name".into(),
+            revision: "old-revision".into(),
+            source_url: None,
+            source_ref: None,
+            source_path: None,
+            upstream_revision: None,
+            forked_from: None,
+            created_at: 1,
+            updated_at: 1,
+            provenance: Default::default(),
+        };
+
+        let mut library = RepoLibrary {
+            version: "2".into(),
+            ..Default::default()
+        };
+        library.resources.push(stale_skill);
+        library.resources.push(kept_skill);
+        save_repo_library(&root, &library).expect("library should be saved");
+
+        let changed =
+            reconcile_managed_skills_from_backup_clone(&root).expect("reconcile should succeed");
+        assert!(changed, "reconcile should detect backup-driven changes");
+
+        let next_library = load_repo_library(&root).expect("library should reload");
+        assert_eq!(next_library.resources.len(), 1, "stale resource should be removed");
+
+        let resource = next_library
+            .resources
+            .iter()
+            .find(|resource| resource.slug == "legacy-skill")
+            .expect("legacy skill should be present");
+        assert_eq!(resource.title, "Legacy Skill");
+        assert_eq!(resource.description.as_deref(), Some("Pulled from backup"));
+        assert_eq!(resource.tags, vec!["backup".to_string()]);
+        assert!(resource.content.contains("Pulled from backup"));
 
         let _ = fs::remove_dir_all(root);
     }
