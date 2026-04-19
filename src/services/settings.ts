@@ -51,7 +51,6 @@ function normalizeBackupSource(source: BackupSource | null | undefined): BackupS
   }
 
   return {
-    enabled: source.enabled,
     repo: source.repo,
     label: source.label,
     remoteUrl: source.remoteUrl,

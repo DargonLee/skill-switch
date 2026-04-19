@@ -12,7 +12,7 @@ import { repoSourceDelete, repoSourceNeedsSync, repoSourceSync } from "../../ser
 import type { ThirdPartyRepo } from "../../types";
 import {
   Plus, Settings, Zap, Sparkles, Database,
-  BookMarked, Globe, X, Loader, Cloud, RefreshCw, Trash2, ExternalLink, Box, ChevronRight,
+  BookMarked, Globe, X, Loader, Cloud, RefreshCw, Trash2, ExternalLink, ChevronRight,
 } from "lucide-react";
 import s from "./AppShell.module.css";
 
@@ -249,14 +249,7 @@ export function AppShell({ activePage, activeRepoId, activeLibraryTab, externalA
     toast.success("仓库源已删除，并移除了本地克隆");
   }, [activePage, activeRepoId, onNavigate, repos, toast, updateSettings]);
 
-  const selfCreatedCount = useMemo(
-    () => skills.filter((sk) => !sk.tags.some((t) => t.startsWith("_remote:") && t.slice(8) !== BACKUP_SOURCE_REPO_ID)).length,
-    [skills],
-  );
-  const thirdPartyCount = useMemo(
-    () => skills.filter((sk) => sk.tags.some((t) => t.startsWith("_remote:") && t.slice(8) !== BACKUP_SOURCE_REPO_ID)).length,
-    [skills],
-  );
+  const selfCreatedCount = skills.length;
   const externalCount = externalSkills.length;
 
   // Per-app external skill counts for sidebar sub-items
@@ -286,9 +279,7 @@ export function AppShell({ activePage, activeRepoId, activeLibraryTab, externalA
     ? "读取中"
     : backupState?.status === "error"
     ? "异常"
-    : backupSource.enabled
-    ? "已启用"
-    : "已禁用";
+    : "已配置";
 
   return (
     <div className={s.shell}>
@@ -359,18 +350,6 @@ export function AppShell({ activePage, activeRepoId, activeLibraryTab, externalA
                 </div>
               )}
 
-              {/* 第三方 */}
-              <button
-                className={`${s.libraryItem} ${activePage === "my-library" && activeLibraryTab === "third-party" ? s.libraryItemActive : ""}`}
-                onClick={() => onNavigateLibraryTab("third-party")}
-              >
-                <Box size={12} className={s.libraryItemIcon} />
-                <span className={s.backupNameWrap}>
-                  <span className={s.backupName}>第三方</span>
-                  <span className={s.backupMeta}>从仓库源安装的 Skills</span>
-                </span>
-                <span className={s.backupRight}>{thirdPartyCount > 0 ? `${thirdPartyCount} 项` : ""}</span>
-              </button>
             </div>
 
             {/* Backup Source Pin */}
@@ -383,7 +362,7 @@ export function AppShell({ activePage, activeRepoId, activeLibraryTab, externalA
                 <button
                   className={`${s.backupItem} ${isBackupActive ? s.backupItemActive : ""}`}
                   onClick={() =>
-                    backupSource.enabled && backupSource.localPath
+                    backupSource.localPath
                       ? onNavigateRepo(BACKUP_SOURCE_REPO_ID)
                       : onNavigate("settings")
                   }

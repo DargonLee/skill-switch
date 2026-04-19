@@ -509,11 +509,6 @@ pub fn skill_repair_broken_symlinks(
     store::repair_broken_symlinks(&app, &input)
 }
 
-#[tauri::command]
-pub fn skill_migrate_to_symlinks(app: tauri::AppHandle) -> Result<store::MigrationResult, String> {
-    store::migrate_copied_skills_to_symlinks(&app)
-}
-
 // ─── Import skill commands ─────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -621,4 +616,22 @@ pub fn registry_install(
     input: crate::domain::RegistryInstallInput,
 ) -> Result<crate::domain::RegistryInstallResult, String> {
     crate::registry::install_registry_skill(&input)
+}
+
+// ─── Backup bootstrap & repo source import commands ───────────────────────────
+
+#[tauri::command]
+pub async fn backup_source_bootstrap(
+    app: tauri::AppHandle,
+    input: crate::domain::BootstrapBackupInput,
+) -> Result<crate::domain::BackupSourceStatus, String> {
+    run_blocking_command(move || store::backup_source_bootstrap(&app, &input)).await
+}
+
+#[tauri::command]
+pub async fn skill_import_from_repo_source(
+    app: tauri::AppHandle,
+    input: crate::domain::ImportRepoSourceSkillInput,
+) -> Result<crate::domain::SkillMutationResult, String> {
+    run_blocking_command(move || store::import_skill_from_repo_source(&app, &input)).await
 }

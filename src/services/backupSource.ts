@@ -1,5 +1,5 @@
 import { tauriInvoke, type Result } from "./tauri";
-import type { BackupSourceStatus } from "../types";
+import type { BackupSourceStatus, BootstrapBackupInput, SkillMutationResult, ImportRepoSourceSkillInput } from "../types";
 
 export const BACKUP_SOURCE_REPO_ID = "__backup_source__";
 
@@ -17,4 +17,12 @@ export async function backupSourcePull(): Promise<Result<BackupSourceStatus>> {
 
 export async function backupSourcePush(): Promise<Result<BackupSourceStatus>> {
   return tauriInvoke<BackupSourceStatus>("backup_source_push");
+}
+
+export async function backupSourceBootstrap(input: BootstrapBackupInput): Promise<Result<BackupSourceStatus>> {
+  return tauriInvoke<BackupSourceStatus>("backup_source_bootstrap", { input });
+}
+
+export async function skillImportFromRepoSource(input: ImportRepoSourceSkillInput): Promise<Result<SkillMutationResult>> {
+  return tauriInvoke<SkillMutationResult>("skill_import_from_repo_source", { input });
 }

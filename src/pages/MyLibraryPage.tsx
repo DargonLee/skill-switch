@@ -25,9 +25,7 @@ import {
 } from "lucide-react";
 import { useSkills } from "../context/SkillContext";
 import { APP_LIST } from "../context/AppContext";
-import { useSettings } from "../context/SettingsContext";
 import { useToast } from "../components/ui/Toast";
-import { BACKUP_SOURCE_REPO_ID } from "../services/backupSource";
 import {
   skillInstallToProject,
   skillUninstallFromProject,
@@ -43,7 +41,7 @@ import {
   openWithTypora,
 } from "../services/skill";
 import { IconButton } from "../components/ui/IconButton";
-import type { Skill, ThirdPartyRepo, SkillDirectoryListing, SkillDirectoryEntry, SkillFileContent, ExternalSkill } from "../types";
+import type { Skill, SkillDirectoryListing, SkillDirectoryEntry, SkillFileContent, ExternalSkill, Provenance } from "../types";
 import modalStyles from "../components/layout/AppShell.module.css";
 import s from "./MyLibraryPage.module.css";
 
@@ -67,31 +65,17 @@ function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString("zh-CN");
 }
 
-// Extract remote source info from skill tags
-function getRemoteSource(skill: Skill, repos: ThirdPartyRepo[]): { isRemote: boolean; label: string } {
-  const remoteTag = skill.tags.find(t => t.startsWith("_remote:"));
-  if (!remoteTag) return { isRemote: false, label: "" };
-
-  const repoId = remoteTag.slice(8); // Remove "_remote:" prefix
-  if (repoId === BACKUP_SOURCE_REPO_ID) {
-    return { isRemote: false, label: "" };
+// Get provenance badge label
+function getProvenanceBadge(provenance?: Provenance): string {
+  if (!provenance) return "";
+  switch (provenance.kind) {
+    case "manual": return "";
+    case "file-import": return "导入";
+    case "external-app": return provenance.label || "外部导入";
+    case "marketplace": return "市场导入";
+    case "repo-source": return provenance.sourceName ? `仓库源 · ${provenance.sourceName}` : "仓库源导入";
+    default: return "";
   }
-  const repo = repos.find(r => r.id === repoId);
-
-  return {
-    isRemote: true,
-    label: repo?.label ?? "第三方",
-  };
-}
-
-function getRemoteRepoId(skill: Skill): string | null {
-  const remoteTag = skill.tags.find((t) => t.startsWith("_remote:"));
-  return remoteTag ? remoteTag.slice(8) : null;
-}
-
-function isThirdPartySkill(skill: Skill): boolean {
-  const repoId = getRemoteRepoId(skill);
-  return !!repoId && repoId !== BACKUP_SOURCE_REPO_ID;
 }
 
 function getAppMeta(appId: string) {
@@ -108,17 +92,15 @@ interface ExternalImportPreviewState {
 function SkillCard({
   skill,
   selected,
-  originLabel,
   onClick,
 }: {
   skill: Skill;
   selected: boolean;
-  originLabel: string;
   onClick: () => void;
 }) {
   const iconColors = getIconColors(skill.name);
   const initial = skill.name.charAt(0).toUpperCase();
-  const isRemote = !!originLabel;
+  const badge = getProvenanceBadge(skill.provenance);
 
   return (
     <div
@@ -138,9 +120,9 @@ function SkillCard({
         <div className={s.cardBody}>
           <div className={s.cardHeader}>
             <span className={s.cardName}>{skill.name}</span>
-            {isRemote && (
+            {badge && (
               <span className={s.cardBadge}>
-                <Globe size={10} /> {originLabel}
+                <Globe size={10} /> {badge}
               </span>
             )}
           </div>
@@ -270,46 +252,6 @@ function ExternalDetailPanel({
   );
 }
 
-function GroupSection({
-  title,
-  count,
-  collapsed,
-  onToggle,
-  children,
-  nested = false,
-  icon,
-}: {
-  title: React.ReactNode;
-  count: number;
-  collapsed: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-  nested?: boolean;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <section className={`${s.groupSection} ${nested ? s.groupSectionNested : ""}`}>
-      <button
-        type="button"
-        className={`${s.groupHeader} ${nested ? s.groupHeaderNested : ""}`}
-        onClick={onToggle}
-        aria-expanded={!collapsed}
-      >
-        <span className={s.groupHeaderLeft}>
-          <ChevronRight
-            size={12}
-            className={`${s.groupChevron} ${collapsed ? s.groupChevronCollapsed : ""}`}
-          />
-          {icon && <span className={s.groupHeaderIcon}>{icon}</span>}
-          <span className={s.groupHeaderTitle}>{title}</span>
-        </span>
-        <span className={s.groupCount}>{count}</span>
-      </button>
-      {!collapsed && <div className={s.groupBody}>{children}</div>}
-    </section>
-  );
-}
-
 // ── Project enable state interface
 interface ProjectEnableState {
   projectId: string;
@@ -320,7 +262,7 @@ interface ProjectEnableState {
 
 // ── Detail Panel Tabs ────────────────────────────────────────────────────────
 type Tab = "enable" | "skillmd" | "files";
-type LibraryGroupTab = "self-created" | "third-party" | "external";
+type LibraryGroupTab = "self-created" | "external";
 
 // ── File icon based on extension ─────────────────────────────────────────────
 function getFileIcon(entry: SkillDirectoryEntry): React.ReactNode {
@@ -939,7 +881,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
   externalAppFilter: string | null;
 }) {
   const { skills, externalSkills, loading, error, search, remove, refresh } = useSkills();
-  const { settings } = useSettings();
   const toast = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(null);
@@ -947,7 +888,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
   const [importing, setImporting] = useState(false);
   const [externalImportPreview, setExternalImportPreview] = useState<ExternalImportPreviewState | null>(null);
   const [loadingExternalPreview, setLoadingExternalPreview] = useState(false);
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounced search (300ms)
@@ -1091,11 +1031,7 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
     }
   }, [skills, toast]);
 
-  // Separate self-created and third-party skills
-  const thirdPartyRepos = settings.thirdPartyRepos ?? [];
-  const selfCreated = skills.filter((skill) => !isThirdPartySkill(skill));
-  const thirdParty = skills.filter(isThirdPartySkill);
-
+  // Separate self-created and external skills
   const filteredSkills = searchQuery.trim()
     ? skills.filter(
         (s) =>
@@ -1104,8 +1040,7 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
       )
     : skills;
 
-  const filteredSelfCreated = filteredSkills.filter((skill) => !isThirdPartySkill(skill));
-  const filteredThirdParty = filteredSkills.filter(isThirdPartySkill);
+  const filteredSelfCreated = filteredSkills;
 
   // Apply externalAppFilter first, then search query
   const appFilteredExternal = externalAppFilter
@@ -1121,13 +1056,9 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
           || appLabel.includes(query);
       })
     : appFilteredExternal;
-  const isSearching = searchQuery.trim().length > 0;
-
   const activeManagedSkills = activeLibraryTab === "self-created"
-    ? selfCreated
-    : activeLibraryTab === "third-party"
-      ? thirdParty
-      : [];
+    ? skills
+    : [];
 
   useEffect(() => {
     if (activeLibraryTab === "external") return;
@@ -1169,18 +1100,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
     }
   }, [activeLibraryTab, externalAppFilter, filteredExternal, selectedExternalKey]);
 
-  const toggleGroup = useCallback((groupKey: string) => {
-    setCollapsedGroups((prev) => ({
-      ...prev,
-      [groupKey]: !prev[groupKey],
-    }));
-  }, []);
-
-  const isGroupCollapsed = useCallback(
-    (groupKey: string) => !isSearching && !!collapsedGroups[groupKey],
-    [collapsedGroups, isSearching]
-  );
-
   const handleSelectManagedSkill = useCallback((skillId: string) => {
     if (skillId === selectedId) {
       return;
@@ -1188,35 +1107,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
 
     setSelectedId(skillId);
   }, [selectedId]);
-
-  const thirdPartyGroups = (() => {
-    const grouped = new Map<string, Skill[]>();
-    for (const skill of filteredThirdParty) {
-      const repoId = getRemoteRepoId(skill) ?? "__unknown__";
-      const current = grouped.get(repoId) ?? [];
-      current.push(skill);
-      grouped.set(repoId, current);
-    }
-
-    const ordered = thirdPartyRepos
-      .map((repo) => ({
-        key: repo.id,
-        title: repo.label,
-        skills: grouped.get(repo.id) ?? [],
-      }))
-      .filter((group) => group.skills.length > 0);
-
-    const unknownSkills = grouped.get("__unknown__") ?? [];
-    if (unknownSkills.length > 0) {
-      ordered.push({
-        key: "__unknown__",
-        title: "第三方",
-        skills: unknownSkills,
-      });
-    }
-
-    return ordered;
-  })();
 
   const renderActiveTabContent = () => {
     if (activeLibraryTab === "self-created") {
@@ -1233,43 +1123,8 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
           key={skill.id}
           skill={skill}
           selected={selectedId === skill.id}
-          originLabel=""
           onClick={() => handleSelectManagedSkill(skill.id)}
         />
-      ));
-    }
-
-    if (activeLibraryTab === "third-party") {
-      if (thirdPartyGroups.length === 0) {
-        return (
-          <div className={s.empty}>
-            {searchQuery ? "第三方 Skills 中未找到匹配项" : "还没有第三方 Skill，可从仓库源安装"}
-          </div>
-        );
-      }
-
-      return thirdPartyGroups.map((group) => (
-        <GroupSection
-          key={group.key}
-          title={group.title}
-          count={group.skills.length}
-          collapsed={isGroupCollapsed(`third-party:${group.key}`)}
-          onToggle={() => toggleGroup(`third-party:${group.key}`)}
-          nested
-        >
-          {group.skills.map((skill) => {
-            const { label } = getRemoteSource(skill, thirdPartyRepos);
-            return (
-              <SkillCard
-                key={skill.id}
-                skill={skill}
-                selected={selectedId === skill.id}
-                originLabel={label}
-                onClick={() => handleSelectManagedSkill(skill.id)}
-              />
-            );
-          })}
-        </GroupSection>
       ));
     }
 
@@ -1309,11 +1164,10 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
       <header className={s.header}>
         <div className={s.headerLeft}>
           <h1 className={s.headerTitle}>
-            {activeLibraryTab === "self-created" ? "自建 Skills" : activeLibraryTab === "external" ? "外部 Skills" : "第三方 Skills"}
+            {activeLibraryTab === "self-created" ? "自建 Skills" : "外部 Skills"}
           </h1>
           <span className={s.headerSub}>
             {activeLibraryTab === "self-created" && `${filteredSelfCreated.length} 个`}
-            {activeLibraryTab === "third-party" && `${filteredThirdParty.length} 个`}
             {activeLibraryTab === "external" && `${filteredExternal.length} 个`}
           </span>
         </div>

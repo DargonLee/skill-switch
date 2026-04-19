@@ -115,7 +115,7 @@ export function CreatePage({ onNavigate, editSkillId }: Props) {
     () => !editSkillId && !!generatedSlug && skills.some((skill) => skill.slug === generatedSlug),
     [editSkillId, generatedSlug, skills]
   );
-  const backupSyncEnabled = !editSkillId && !!settings.backupSource?.enabled;
+  const backupSyncEnabled = !editSkillId && !!settings.backupSource;
 
   // Load existing skill for edit mode
   useEffect(() => {

@@ -80,7 +80,7 @@ interface SourceContextValue {
 const SourceContext = createContext<SourceContextValue | null>(null);
 
 function buildBackupRepo(source: BackupSource | null): ThirdPartyRepo | null {
-  if (!source || !source.enabled || !source.remoteUrl.trim()) {
+  if (!source || !source.remoteUrl.trim()) {
     return null;
   }
 

@@ -7,22 +7,39 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { AppProvider } from "./context/AppContext";
 import { SkillProvider } from "./context/SkillContext";
 import { ProjectProvider } from "./context/ProjectContext";
-import { SettingsProvider } from "./context/SettingsContext";
+import { SettingsProvider, useSettings } from "./context/SettingsContext";
 import { SourceProvider } from "./context/SourceContext";
 import { UpdaterProvider } from "./context/UpdaterContext";
 import { ToastProvider } from "./components/ui/Toast";
 import { ToastContainer } from "./components/ui/ToastContainer";
 import { UpdateNotification } from "./components/ui/UpdateNotification";
+import { BackupSetupModal } from "./components/ui/BackupSetupModal";
 import "./App.css";
 
 export type PageId = "my-library" | "repo-browse" | "create" | "settings";
-export type LibraryTab = "self-created" | "third-party" | "external";
+export type LibraryTab = "self-created" | "external";
+
+function BackupGate({ children }: { children: React.ReactNode }) {
+  const { settings, loading } = useSettings();
+  const [ready, setReady] = useState(false);
+
+  if (loading) return null;
+
+  if (!ready && !settings.backupSource) {
+    return <BackupSetupModal onConnected={() => setReady(true)} />;
+  }
+
+  return <>{children}</>;
+}
 
 export default function App() {
   const [activePage, setActivePage] = useState<PageId>("my-library");
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
-  const [activeLibraryTab, setActiveLibraryTab] = useState<LibraryTab>("self-created");
-  const [externalAppFilter, setExternalAppFilter] = useState<string | null>(null);
+  const [activeLibraryTab, setActiveLibraryTab] =
+    useState<LibraryTab>("self-created");
+  const [externalAppFilter, setExternalAppFilter] = useState<string | null>(
+    null
+  );
 
   const navigateToRepo = (repoId: string) => {
     setActiveRepoId(repoId);
@@ -45,10 +62,20 @@ export default function App() {
 
   const renderPage = () => {
     switch (activePage) {
-      case "my-library": return <MyLibraryPage onNavigate={setActivePage} activeLibraryTab={activeLibraryTab} externalAppFilter={externalAppFilter} />;
-      case "repo-browse": return <RepoBrowsePage repoId={activeRepoId ?? ""} />;
-      case "create":    return <CreatePage onNavigate={setActivePage} />;
-      case "settings":  return <SettingsPage />;
+      case "my-library":
+        return (
+          <MyLibraryPage
+            onNavigate={setActivePage}
+            activeLibraryTab={activeLibraryTab}
+            externalAppFilter={externalAppFilter}
+          />
+        );
+      case "repo-browse":
+        return <RepoBrowsePage repoId={activeRepoId ?? ""} />;
+      case "create":
+        return <CreatePage onNavigate={setActivePage} />;
+      case "settings":
+        return <SettingsPage />;
     }
   };
 
@@ -56,28 +83,30 @@ export default function App() {
     <AppProvider>
       <SettingsProvider>
         <ToastProvider>
-          <SourceProvider>
-            <SkillProvider>
-              <ProjectProvider>
-                <UpdaterProvider>
-                  <AppShell
-                    activePage={activePage}
-                    activeRepoId={activeRepoId}
-                    activeLibraryTab={activeLibraryTab}
-                    externalAppFilter={externalAppFilter}
-                    onNavigate={setActivePage}
-                    onNavigateRepo={navigateToRepo}
-                    onNavigateLibraryTab={navigateToLibraryTab}
-                    onNavigateExternalApp={navigateToExternalApp}
-                  >
-                    {renderPage()}
-                  </AppShell>
-                  <ToastContainer />
-                  <UpdateNotification />
-                </UpdaterProvider>
-              </ProjectProvider>
-            </SkillProvider>
-          </SourceProvider>
+          <BackupGate>
+            <SourceProvider>
+              <SkillProvider>
+                <ProjectProvider>
+                  <UpdaterProvider>
+                    <AppShell
+                      activePage={activePage}
+                      activeRepoId={activeRepoId}
+                      activeLibraryTab={activeLibraryTab}
+                      externalAppFilter={externalAppFilter}
+                      onNavigate={setActivePage}
+                      onNavigateRepo={navigateToRepo}
+                      onNavigateLibraryTab={navigateToLibraryTab}
+                      onNavigateExternalApp={navigateToExternalApp}
+                    >
+                      {renderPage()}
+                    </AppShell>
+                    <ToastContainer />
+                    <UpdateNotification />
+                  </UpdaterProvider>
+                </ProjectProvider>
+              </SkillProvider>
+            </SourceProvider>
+          </BackupGate>
         </ToastProvider>
       </SettingsProvider>
     </AppProvider>

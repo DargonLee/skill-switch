@@ -255,5 +255,26 @@ pub fn import_skill_from_market(
     // Clean up temp directory
     let _ = fs::remove_dir_all(&temp_dir);
 
-    result
+    // Update provenance to Marketplace
+    let mut skill = result?;
+    skill.provenance = crate::domain::Provenance {
+        kind: crate::domain::ProvenanceKind::Marketplace,
+        label: "市场安装".to_string(),
+        source_url: Some(input.github_url.clone()),
+        source_name: Some(input.skill_name.clone()),
+        source_path: Some(input.skill_path.clone()),
+        ..Default::default()
+    };
+
+    // Persist provenance in library
+    if let Ok(repo_root) = crate::store::connected_repo_root(app) {
+        if let Ok(mut library) = crate::store::load_repo_library(&repo_root) {
+            if let Some(resource) = library.resources.iter_mut().find(|r| r.id == skill.id) {
+                resource.provenance = skill.provenance.clone();
+            }
+            let _ = crate::store::save_repo_library(&repo_root, &library);
+        }
+    }
+
+    Ok(skill)
 }

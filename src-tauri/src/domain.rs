@@ -80,6 +80,38 @@ pub enum InstallTargetKind {
     ProjectCodexSkill,
 }
 
+// ─── Provenance types ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProvenanceKind {
+    #[default]
+    Manual,
+    FileImport,
+    ExternalApp,
+    Marketplace,
+    RepoSource,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Provenance {
+    pub kind: ProvenanceKind,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_id: Option<String>,
+}
+
+// ─── Core resource types ──────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Resource {
@@ -102,6 +134,8 @@ pub struct Resource {
     pub forked_from: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default)]
+    pub provenance: Provenance,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -323,6 +357,8 @@ pub struct LegacySkillDto {
     pub project_ids: Vec<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default)]
+    pub provenance: Provenance,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -339,6 +375,31 @@ pub struct BackupSyncResult {
 pub struct CreateLegacySkillResult {
     pub skill: LegacySkillDto,
     pub backup_sync: BackupSyncResult,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    pub status: String,
+    pub message: Option<String>,
+    pub last_error: Option<String>,
+    pub ahead: usize,
+    pub behind: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMutationResult {
+    pub skill: LegacySkillDto,
+    pub sync: SyncStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub struct SkillDeleteResult {
+    pub deleted: bool,
+    pub sync: SyncStatus,
 }
 
 /// A skill found in an external app directory (not managed by SkillSwitch)
@@ -406,6 +467,14 @@ pub struct UpdateProjectInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ImportRepoSourceSkillInput {
+    pub repo_id: String,
+    pub skill_slug: String,
+    pub skill_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecoveryEntry {
     pub id: String,
     pub kind: String,
@@ -458,7 +527,6 @@ pub struct InstallRecordIdInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupSourceConfig {
-    pub enabled: bool,
     pub repo: String,
     pub label: String,
     pub remote_url: String,
@@ -466,21 +534,22 @@ pub struct BackupSourceConfig {
     pub local_path: Option<String>,
     pub last_synced_at: Option<i64>,
     #[serde(default)]
-    pub last_synced_commit: Option<String>, // Store last synced commit hash for ahead/behind calculation
+    pub last_synced_commit: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupSourceStatus {
-    pub enabled: bool,
+    pub configured: bool,
     pub repo: String,
     pub label: String,
     pub remote_url: String,
     pub branch: String,
-    pub local_path: Option<String>,
+    pub local_path: String,
     pub last_synced_at: Option<i64>,
-    #[serde(default)]
-    pub last_synced_commit: Option<String>, // Store last synced commit hash for ahead/behind calculation
+    pub last_synced_commit: Option<String>,
     pub connected: bool,
     pub git_available: bool,
     pub is_git_repo: bool,
@@ -488,7 +557,15 @@ pub struct BackupSourceStatus {
     pub ahead: usize,
     pub behind: usize,
     pub dirty: bool,
+    pub last_error: Option<String>,
     pub notice: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapBackupInput {
+    pub remote_url: String,
+    pub branch: Option<String>,
 }
 
 // ─── Settings types ────────────────────────────────────────────────────────────

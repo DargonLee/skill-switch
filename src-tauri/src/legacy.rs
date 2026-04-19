@@ -119,6 +119,7 @@ pub fn migrate_legacy_store(
             forked_from: None,
             created_at: skill.created_at,
             updated_at: skill.updated_at,
+            provenance: Default::default(),
         };
 
         for project_id in &skill.project_ids {

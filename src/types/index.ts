@@ -80,6 +80,28 @@ export type InstallStatus =
   | "stale"
   | "diverged"
   | "missing";
+
+// ─── Provenance types ─────────────────────────────────────────────────────────
+
+export type ProvenanceKind =
+  | "manual"
+  | "file-import"
+  | "external-app"
+  | "marketplace"
+  | "repo-source";
+
+export interface Provenance {
+  kind: ProvenanceKind;
+  label: string;
+  sourceId?: string | null;
+  sourceName?: string | null;
+  sourceUrl?: string | null;
+  sourcePath?: string | null;
+  appId?: string | null;
+}
+
+// ─── Scan & preview types ─────────────────────────────────────────────────────
+
 export type ProjectScanItemStatus =
   | "new"
   | "modified"
@@ -119,6 +141,7 @@ export interface Skill {
   projectIds: string[];
   createdAt: number;
   updatedAt: number;
+  provenance?: Provenance;
 }
 
 /// A skill found in an external app directory (not managed by SkillSwitch)
@@ -153,6 +176,7 @@ export interface Resource {
   sourceStatus: SourceStatus;
   createdAt: number;
   updatedAt: number;
+  provenance?: Provenance;
 }
 
 export interface ProjectProfile {
@@ -311,6 +335,24 @@ export interface CreateSkillResult {
   backupSync: BackupSyncResult;
 }
 
+export interface SyncStatus {
+  status: string;
+  message?: string | null;
+  lastError?: string | null;
+  ahead: number;
+  behind: number;
+}
+
+export interface SkillMutationResult {
+  skill: Skill;
+  sync: SyncStatus;
+}
+
+export interface SkillDeleteResult {
+  deleted: boolean;
+  sync: SyncStatus;
+}
+
 export interface UpdateSkillInput {
   id: string;
   name?: string;
@@ -331,6 +373,12 @@ export interface UpdateProjectInput {
   name?: string;
   path?: string | null;
   color?: string | null;
+}
+
+export interface ImportRepoSourceSkillInput {
+  repoId: string;
+  skillSlug: string;
+  skillPath: string;
 }
 
 export interface SkillFilter {
@@ -444,17 +492,25 @@ export interface AppSettings {
 // ─── Third-party repo source types ────────────────────────────────────────────
 
 export interface BackupSource {
-  enabled: boolean;
   repo: string;
   label: string;
   remoteUrl: string;
   branch: string;
   localPath?: string | null;
   lastSyncedAt?: number | null;
-  lastSyncedCommit?: string | null; // Store last synced commit hash for ahead/behind calculation
+  lastSyncedCommit?: string | null;
+  lastError?: string | null;
 }
 
-export interface BackupSourceStatus extends BackupSource {
+export interface BackupSourceStatus {
+  configured: boolean;
+  repo: string;
+  label: string;
+  remoteUrl: string;
+  branch: string;
+  localPath: string;
+  lastSyncedAt?: number | null;
+  lastSyncedCommit?: string | null;
   connected: boolean;
   gitAvailable: boolean;
   isGitRepo: boolean;
@@ -462,7 +518,13 @@ export interface BackupSourceStatus extends BackupSource {
   ahead: number;
   behind: number;
   dirty: boolean;
+  lastError?: string | null;
   notice?: string | null;
+}
+
+export interface BootstrapBackupInput {
+  remoteUrl: string;
+  branch?: string | null;
 }
 
 export interface ThirdPartyRepo {

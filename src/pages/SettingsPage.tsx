@@ -29,7 +29,6 @@ function formatSyncTime(ts?: number | null): string {
 }
 
 type BackupSourceDraft = {
-  enabled: boolean;
   remoteUrl: string;
   branch: string;
   localPath?: string | null;
@@ -37,7 +36,6 @@ type BackupSourceDraft = {
 };
 
 const DEFAULT_BACKUP_SOURCE_DRAFT: BackupSourceDraft = {
-  enabled: false,
   remoteUrl: "git@github.com:DargonLee/My-Skills.git",
   branch: "main",
   localPath: null,
@@ -50,7 +48,6 @@ function normalizeBackupSource(source: BackupSource | null | undefined): BackupS
   }
 
   return {
-    enabled: source.enabled,
     remoteUrl: source.remoteUrl.trim(),
     branch: source.branch.trim() || "main",
     localPath: source.localPath ?? null,
@@ -126,7 +123,6 @@ export function SettingsPage() {
 
   const syncBackupDraftFromStatus = useCallback((status: BackupSourceStatus) => {
     const nextSource: BackupSource = {
-      enabled: status.enabled,
       repo: status.repo,
       label: status.label,
       remoteUrl: status.remoteUrl,
@@ -157,7 +153,6 @@ export function SettingsPage() {
     }
 
     const nextSource: BackupSource = {
-      enabled: backupDraft.enabled,
       repo,
       label: repo,
       remoteUrl,
@@ -431,8 +426,8 @@ export function SettingsPage() {
                 >
                   <Info size={14} />
                 </button>
-                <span className={backupDraft.enabled ? s.backupStateOn : s.backupStateOff}>
-                  {backupDraft.enabled ? "已启用" : "未启用"}
+                <span className={s.backupStateOn}>
+                  {"已配置"}
                 </span>
               </div>
             </div>
@@ -440,12 +435,8 @@ export function SettingsPage() {
               <div className={s.row}>
                 <div className={s.rowBody}>
                   <div className={s.rowLabel}>自动同步到远端</div>
-                  <div className={s.rowHint}>启用后，新建/编辑/删除/导入 Skill 都会自动推送到 Git 仓库；仅同步自建 Skills。</div>
+                  <div className={s.rowHint}>配置后，新建/编辑/删除/导入 Skill 都会自动推送到 Git 仓库；仅同步自建 Skills。</div>
                 </div>
-                <Toggle
-                  checked={backupDraft.enabled}
-                  onChange={(v) => handleBackupDraftChange("enabled", v)}
-                />
               </div>
 
               <div className={`${s.row} ${s.rowFull}`}>

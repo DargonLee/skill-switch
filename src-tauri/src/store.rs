@@ -1,7 +1,6 @@
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
@@ -14,11 +13,11 @@ use crate::domain::{
     InstallSkillToProjectResult, InstallStatus, InstallTarget, InstallTargetKind, LegacyProjectDto,
     LegacySkillDto, LocalProjectBinding, LocalState, PreviewDecisionAction, PreviewPlan,
     PreviewPlanKind, ProjectFileEntry, ProjectFileStatus, ProjectPreviewInput, ProjectProfile,
-    ProjectScanResult, ProjectScanSummary, RecoveryEntry, RecoveryScanResult,
-    RemoveProjectCliInput, RemoveProjectCliResult, RepairBrokenSymlinksResult, RepoConfig,
-    RepoLibrary, RepoStatus, Resource, ResourceKind, ResourceListFilter, ResourceOrigin,
-    ResourceScope, SkillSymlinkStatus, SourceStatus, UpdateItem, UpdateProjectInput,
-    UpdateSkillInput,
+    ProjectScanResult, ProjectScanSummary, Provenance, ProvenanceKind, RecoveryEntry,
+    RecoveryScanResult, RemoveProjectCliInput, RemoveProjectCliResult, RepairBrokenSymlinksResult,
+    RepoConfig, RepoLibrary, RepoStatus, Resource, ResourceKind, ResourceListFilter,
+    ResourceOrigin, ResourceScope, SkillMutationResult, SkillSymlinkStatus, SourceStatus,
+    SyncStatus, UpdateItem, UpdateProjectInput, UpdateSkillInput,
 };
 use crate::git;
 use crate::legacy;
@@ -196,6 +195,25 @@ pub fn save_repo_library(repo_root: &Path, library: &RepoLibrary) -> Result<(), 
 }
 
 pub fn connected_repo_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    // Try persistent clone first (when backup source is configured)
+    if let Some(clone_dir) = persistent_clone_dir(app)? {
+        if clone_dir.exists() {
+            // Ensure .skill-switch/library.json exists
+            let manifest = repo_manifest_path(&clone_dir);
+            if !manifest.exists() {
+                if let Some(parent) = manifest.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                let library = RepoLibrary {
+                    version: "2".into(),
+                    ..Default::default()
+                };
+                save_repo_library(&clone_dir, &library)?;
+            }
+            return Ok(clone_dir);
+        }
+    }
+    // Fallback to old library-repo
     let mut state = load_local_state(app)?;
     ensure_local_library_repo_root(app, &mut state)
 }
@@ -495,184 +513,11 @@ fn is_managed_skill_resource(resource: &Resource) -> bool {
         && resource.project_id.is_none()
 }
 
-fn skill_has_remote_tag(resource: &Resource) -> bool {
-    resource.tags.iter().any(|tag| tag.starts_with("_remote:"))
-}
-
-fn public_skill_tag_count(resource: &Resource) -> usize {
-    resource
-        .tags
-        .iter()
-        .filter(|tag| !tag.starts_with('_'))
-        .count()
-}
-
-fn should_prefer_skill_resource(candidate: &Resource, current: &Resource) -> bool {
-    let candidate_remote = skill_has_remote_tag(candidate);
-    let current_remote = skill_has_remote_tag(current);
-    if candidate_remote != current_remote {
-        return !candidate_remote;
-    }
-
-    let candidate_public_tags = public_skill_tag_count(candidate);
-    let current_public_tags = public_skill_tag_count(current);
-    if candidate_public_tags != current_public_tags {
-        return candidate_public_tags > current_public_tags;
-    }
-
-    if candidate.updated_at != current.updated_at {
-        return candidate.updated_at > current.updated_at;
-    }
-
-    if candidate.created_at != current.created_at {
-        return candidate.created_at > current.created_at;
-    }
-
-    candidate.id > current.id
-}
-
-fn merge_skill_resource_metadata(canonical: &mut Resource, duplicate: &Resource) {
-    let keep_remote_tags = skill_has_remote_tag(canonical);
-    let mut seen = canonical.tags.iter().cloned().collect::<HashSet<_>>();
-
-    for tag in &duplicate.tags {
-        if tag.starts_with("_remote:") && !keep_remote_tags {
-            continue;
-        }
-
-        if seen.insert(tag.clone()) {
-            canonical.tags.push(tag.clone());
-        }
-    }
-
-    if canonical.description.is_none() && duplicate.description.is_some() {
-        canonical.description = duplicate.description.clone();
-    }
-}
-
-fn dedupe_managed_skill_resources(library: &mut RepoLibrary) -> HashMap<String, String> {
-    let mut grouped_indexes: HashMap<String, Vec<usize>> = HashMap::new();
-
-    for (index, resource) in library.resources.iter().enumerate() {
-        if is_managed_skill_resource(resource) {
-            grouped_indexes
-                .entry(resource.slug.clone())
-                .or_default()
-                .push(index);
-        }
-    }
-
-    let mut replaced_ids = HashMap::new();
-    let mut removed_ids = HashSet::new();
-
-    for indexes in grouped_indexes.values().filter(|indexes| indexes.len() > 1) {
-        let mut canonical_index = indexes[0];
-        for &index in indexes.iter().skip(1) {
-            if should_prefer_skill_resource(
-                &library.resources[index],
-                &library.resources[canonical_index],
-            ) {
-                canonical_index = index;
-            }
-        }
-
-        let duplicates = indexes
-            .iter()
-            .copied()
-            .filter(|index| *index != canonical_index)
-            .map(|index| library.resources[index].clone())
-            .collect::<Vec<_>>();
-
-        {
-            let canonical = &mut library.resources[canonical_index];
-            for duplicate in &duplicates {
-                merge_skill_resource_metadata(canonical, duplicate);
-            }
-        }
-
-        let canonical_id = library.resources[canonical_index].id.clone();
-        for duplicate in duplicates {
-            removed_ids.insert(duplicate.id.clone());
-            replaced_ids.insert(duplicate.id, canonical_id.clone());
-        }
-    }
-
-    if replaced_ids.is_empty() {
-        return replaced_ids;
-    }
-
-    for profile in &mut library.project_profiles {
-        if let Some(mapped) = profile
-            .agents_resource_id
-            .as_ref()
-            .and_then(|resource_id| replaced_ids.get(resource_id))
-        {
-            profile.agents_resource_id = Some(mapped.clone());
-        }
-
-        let mut seen = HashSet::new();
-        let mut next_ids = Vec::with_capacity(profile.attached_resource_ids.len());
-        for resource_id in &profile.attached_resource_ids {
-            let mapped = replaced_ids
-                .get(resource_id)
-                .cloned()
-                .unwrap_or_else(|| resource_id.clone());
-            if seen.insert(mapped.clone()) {
-                next_ids.push(mapped);
-            }
-        }
-        profile.attached_resource_ids = next_ids;
-    }
-
-    library
-        .resources
-        .retain(|resource| !removed_ids.contains(&resource.id));
-
-    replaced_ids
-}
-
-fn remap_install_record_resource_ids(
-    install_records: &mut [InstallRecord],
-    replaced_ids: &HashMap<String, String>,
-) -> bool {
-    let mut changed = false;
-
-    for record in install_records {
-        if let Some(replacement) = replaced_ids.get(&record.resource_id) {
-            if record.resource_id != *replacement {
-                record.resource_id = replacement.clone();
-                changed = true;
-            }
-        }
-    }
-
-    changed
-}
-
 fn load_repo_library_for_legacy_skills(
-    app: &tauri::AppHandle,
+    _app: &tauri::AppHandle,
     repo_root: &Path,
 ) -> Result<RepoLibrary, String> {
-    let mut library = load_repo_library(repo_root)?;
-    let replaced_ids = dedupe_managed_skill_resources(&mut library);
-
-    if replaced_ids.is_empty() {
-        return Ok(library);
-    }
-
-    save_repo_library(repo_root, &library)?;
-
-    let mut state = load_local_state(app)?;
-    if remap_install_record_resource_ids(&mut state.install_records, &replaced_ids) {
-        save_local_state(app, &state)?;
-    }
-
-    Ok(library)
-}
-
-fn is_backup_eligible_skill_resource(resource: &Resource) -> bool {
-    is_managed_skill_resource(resource)
-        && !resource.tags.iter().any(|tag| tag.starts_with("_remote:"))
+    load_repo_library(repo_root)
 }
 
 fn parse_skill_front_matter(content: &str) -> (Option<String>, Option<String>, Vec<String>) {
@@ -741,36 +586,6 @@ fn default_library_repo_root(app: &tauri::AppHandle) -> Result<PathBuf, String> 
         .map(|path| path.join(DEFAULT_LIBRARY_REPO_DIR))
 }
 
-fn prune_skill_dirs_in_root(root: &Path, allowed_slugs: &HashSet<String>) -> Result<(), String> {
-    if !root.exists() {
-        return Ok(());
-    }
-
-    for entry in fs::read_dir(root).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let path = entry.path();
-        let slug = entry.file_name().to_string_lossy().into_owned();
-        if slug.starts_with('.') || !path.is_dir() {
-            continue;
-        }
-
-        if !path.join("SKILL.md").exists() {
-            continue;
-        }
-
-        if !allowed_slugs.contains(&slug) {
-            remove_path(&path)?;
-        }
-    }
-
-    let embedded_library_dir = root.join(LIBRARY_DIR);
-    if embedded_library_dir.exists() {
-        remove_path(&embedded_library_dir)?;
-    }
-
-    Ok(())
-}
-
 fn ensure_local_library_repo_root(
     app: &tauri::AppHandle,
     local_state: &mut LocalState,
@@ -812,187 +627,27 @@ fn ensure_local_library_repo_root(
     Ok(default_root)
 }
 
-fn materialize_backup_eligible_skills_to_backup_repo(
-    app: &tauri::AppHandle,
-    backup_root: &Path,
-) -> Result<(), String> {
-    let Some(repo_root) = connected_repo_root_if_available(app)? else {
-        return Ok(());
-    };
-
-    let library = load_repo_library(&repo_root)?;
-    let mut slugs = HashSet::new();
-
-    for resource in library
-        .resources
-        .iter()
-        .filter(|resource| is_backup_eligible_skill_resource(resource))
-    {
-        ensure_skill_source_in_root(backup_root, &resource.slug, &resource.content, &[])?;
-        slugs.insert(resource.slug.clone());
-    }
-
-    prune_skill_dirs_in_root(backup_root, &slugs)
-}
-
-fn sync_backup_eligible_skills_from_backup_repo(
-    app: &tauri::AppHandle,
-    backup_root: &Path,
-) -> Result<(), String> {
-    let Some(repo_root) = connected_repo_root_if_available(app)? else {
-        return Ok(());
-    };
-
-    if !backup_root.exists() {
+/// Migrate skill source directories from old skill-sources to the persistent clone.
+fn migrate_skill_sources_to_clone(old_sources: &Path, clone_dir: &Path) -> Result<(), String> {
+    if !old_sources.exists() {
         return Ok(());
     }
-
-    snapshot_skill_sources_before_mutation(app, "sync-from-backup-source")?;
-
-    let mut library = load_repo_library(&repo_root)?;
-    let embedded_backup_library = repo_manifest_path(backup_root)
-        .exists()
-        .then(|| load_repo_library(backup_root))
-        .transpose()?;
-    let embedded_allowed_slugs = embedded_backup_library.as_ref().map(|embedded| {
-        embedded
-            .resources
-            .iter()
-            .filter(|resource| is_backup_eligible_skill_resource(resource))
-            .map(|resource| resource.slug.clone())
-            .collect::<HashSet<_>>()
-    });
-    let now = now_ms();
-    let mut changed = false;
-    let mut existing_by_slug = HashMap::new();
-
-    for (index, resource) in library.resources.iter().enumerate() {
-        if is_backup_eligible_skill_resource(resource) {
-            existing_by_slug.insert(resource.slug.clone(), index);
-        }
-    }
-
-    let mut seen_slugs = HashSet::new();
-    for entry in fs::read_dir(backup_root).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
+    for entry in fs::read_dir(old_sources).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
         let slug = entry.file_name().to_string_lossy().into_owned();
         if slug.starts_with('.') || !path.is_dir() {
             continue;
         }
-
         let skill_file = path.join("SKILL.md");
         if !skill_file.exists() {
             continue;
         }
-
-        // Always mark as "seen" to prevent removal - ALL valid skills in backup_root
-        // are protected from removal, regardless of embedded_allowed_slugs filter
-        seen_slugs.insert(slug.clone());
-
-        // Skip update/add if embedded_allowed_slugs is set and doesn't contain this slug
-        if let Some(allowed_slugs) = embedded_allowed_slugs.as_ref() {
-            if !allowed_slugs.contains(&slug) {
-                continue;
-            }
-        }
-
-        let content = fs::read_to_string(&skill_file).map_err(|error| error.to_string())?;
-        let existing_tags = existing_by_slug
-            .get(&slug)
-            .and_then(|index| library.resources.get(*index))
-            .map(|resource| resource.tags.as_slice());
-        let (name, description, tags) =
-            derive_skill_source_metadata(&slug, &content, existing_tags);
-        let revision = compute_revision(&content);
-
-        if let Some(index) = existing_by_slug.get(&slug).copied() {
-            if let Some(resource) = library.resources.get_mut(index) {
-                let mut resource_changed = false;
-
-                if resource.title != name {
-                    resource.title = name.clone();
-                    resource_changed = true;
-                }
-                if resource.description != description {
-                    resource.description = description.clone();
-                    resource_changed = true;
-                }
-                if resource.tags != tags {
-                    resource.tags = tags.clone();
-                    resource_changed = true;
-                }
-                if resource.content != content {
-                    resource.content = content.clone();
-                    resource_changed = true;
-                }
-                if resource.revision != revision {
-                    resource.revision = revision.clone();
-                    resource_changed = true;
-                }
-
-                if resource_changed {
-                    resource.updated_at = now;
-                    changed = true;
-                }
-            }
-        } else {
-            library.resources.push(Resource {
-                id: Uuid::new_v4().to_string(),
-                slug: slug.clone(),
-                title: name,
-                description,
-                kind: ResourceKind::Skill,
-                scope: ResourceScope::Global,
-                origin: ResourceOrigin::Private,
-                source_status: SourceStatus::LocalOnly,
-                project_id: None,
-                tags,
-                content,
-                revision,
-                source_url: None,
-                source_ref: None,
-                source_path: None,
-                upstream_revision: None,
-                forked_from: None,
-                created_at: now,
-                updated_at: now,
-            });
-            changed = true;
+        let target = clone_dir.join(&slug);
+        if !target.exists() {
+            copy_dir_all(&path, &target)?;
         }
     }
-
-    let removed_ids = library
-        .resources
-        .iter()
-        .filter(|resource| {
-            is_backup_eligible_skill_resource(resource) && !seen_slugs.contains(&resource.slug)
-        })
-        .map(|resource| resource.id.clone())
-        .collect::<HashSet<_>>();
-
-    if !removed_ids.is_empty() {
-        library
-            .resources
-            .retain(|resource| !removed_ids.contains(&resource.id));
-        for resource_id in &removed_ids {
-            detach_resource_from_all_profiles(&mut library.project_profiles, resource_id);
-        }
-        changed = true;
-    }
-
-    if changed {
-        save_repo_library(&repo_root, &library)?;
-    }
-
-    for resource in library
-        .resources
-        .iter()
-        .filter(|resource| is_backup_eligible_skill_resource(resource))
-    {
-        ensure_skill_source(app, &resource.slug, &resource.content)?;
-    }
-
     Ok(())
 }
 
@@ -1006,7 +661,7 @@ pub fn create_legacy_skill(
 fn create_legacy_skill_internal(
     app: &tauri::AppHandle,
     input: &CreateSkillInput,
-    snapshot_before_write: bool,
+    _snapshot_before_write: bool,
 ) -> Result<CreateLegacySkillResult, String> {
     let repo_root = connected_repo_root(app)?;
     let mut library = load_repo_library_for_legacy_skills(app, &repo_root)?;
@@ -1019,10 +674,6 @@ fn create_legacy_skill_internal(
         .any(|resource| is_managed_skill_resource(resource) && resource.slug == slug)
     {
         return Err(format!("已存在同名 Skill：{}", slug));
-    }
-
-    if snapshot_before_write {
-        snapshot_skill_sources_before_mutation(app, &format!("create-{}", slug))?;
     }
 
     let resource = Resource {
@@ -1045,6 +696,7 @@ fn create_legacy_skill_internal(
         forked_from: None,
         created_at: now,
         updated_at: now,
+        provenance: Default::default(),
     };
 
     let resource_id = resource.id.clone();
@@ -1062,7 +714,7 @@ fn create_legacy_skill_internal(
         &input.directories,
     )?;
 
-    let backup_sync = sync_backup_source_after_mutation(app);
+    let backup_sync = sync_after_mutation(app, &format!("Create skill: {}", resource.title));
 
     Ok(CreateLegacySkillResult {
         skill: resource_to_legacy_skill(&resource, &library),
@@ -1070,121 +722,75 @@ fn create_legacy_skill_internal(
     })
 }
 
-fn sync_backup_source_after_mutation(app: &tauri::AppHandle) -> BackupSyncResult {
-    const MAX_ATTEMPTS: usize = 3;
-
-    let source = match backup_source_settings(app) {
-        Ok(Some(source)) => source,
-        Ok(None) => {
+fn sync_after_mutation(app: &tauri::AppHandle, message: &str) -> BackupSyncResult {
+    let clone_dir = match persistent_clone_dir(app) {
+        Ok(Some(d)) if d.exists() => d,
+        Ok(Some(_)) | Ok(None) => {
             return BackupSyncResult {
-                status: "skipped".to_string(),
+                status: "skipped".into(),
                 attempts: 0,
-                message: Some("未配置备份源，已跳过远端同步".to_string()),
+                message: Some("备份仓库未配置或未连接".into()),
                 last_error: None,
             }
         }
-        Err(error) => {
+        Err(e) => {
             return BackupSyncResult {
-                status: "failed".to_string(),
+                status: "failed".into(),
                 attempts: 0,
-                message: Some("读取备份源配置失败".to_string()),
-                last_error: Some(error),
+                message: Some("读取备份源配置失败".into()),
+                last_error: Some(e),
             }
         }
     };
 
-    if !source.enabled {
+    // git add -A
+    if let Err(e) = git::add_all(&clone_dir) {
         return BackupSyncResult {
-            status: "skipped".to_string(),
-            attempts: 0,
-            message: Some("备份源已禁用，已跳过远端同步".to_string()),
-            last_error: None,
+            status: "failed".into(),
+            attempts: 1,
+            message: Some("git add 失败".into()),
+            last_error: Some(e),
         };
     }
 
-    let mut last_error: Option<String> = None;
-    let mut attempted_connect = false;
-
-    for attempt in 1..=MAX_ATTEMPTS {
-        match backup_source_push(app) {
-            Ok(_) => {
-                return BackupSyncResult {
-                    status: "success".to_string(),
-                    attempts: attempt,
-                    message: Some(if attempt > 1 {
-                        format!("远端同步成功（第 {} 次尝试成功）", attempt)
-                    } else {
-                        "远端同步成功".to_string()
-                    }),
-                    last_error: None,
-                }
-            }
-            Err(error) => {
-                let retryable = is_retryable_backup_sync_error(&error);
-                let requires_connect = error.contains("not connected locally yet");
-                last_error = Some(error.clone());
-
-                if requires_connect && !attempted_connect {
-                    attempted_connect = true;
-                    match backup_source_connect(app) {
-                        Ok(_) => continue,
-                        Err(connect_error) => {
-                            attempted_connect = false;
-                            last_error = Some(connect_error.clone());
-                            if attempt < MAX_ATTEMPTS {
-                                continue;
-                            }
-
-                            return BackupSyncResult {
-                                status: "failed".to_string(),
-                                attempts: attempt,
-                                message: Some("远端同步失败".to_string()),
-                                last_error,
-                            };
-                        }
-                    }
-                }
-
-                if attempt < MAX_ATTEMPTS && retryable {
-                    continue;
-                }
-
-                return BackupSyncResult {
-                    status: "failed".to_string(),
-                    attempts: attempt,
-                    message: Some("远端同步失败".to_string()),
-                    last_error,
-                };
+    // git commit
+    match git::commit(&clone_dir, message) {
+        Ok(false) => {} // nothing to commit
+        Ok(true) => {}  // committed
+        Err(e) => {
+            return BackupSyncResult {
+                status: "failed".into(),
+                attempts: 1,
+                message: Some("git commit 失败".into()),
+                last_error: Some(e),
             }
         }
     }
 
-    BackupSyncResult {
-        status: "failed".to_string(),
-        attempts: MAX_ATTEMPTS,
-        message: Some("远端同步失败".to_string()),
-        last_error,
+    // git push (best effort, don't fail the mutation)
+    match git::push(&clone_dir) {
+        Ok(()) => BackupSyncResult {
+            status: "success".into(),
+            attempts: 1,
+            message: Some("远端同步成功".into()),
+            last_error: None,
+        },
+        Err(e) => {
+            // Update settings with last_error
+            if let Ok(mut settings) = load_settings(app) {
+                if let Some(ref mut config) = settings.backup_source {
+                    config.last_error = Some(e.clone());
+                }
+                let _ = save_settings(app, &settings);
+            }
+            BackupSyncResult {
+                status: "pending".into(),
+                attempts: 1,
+                message: Some("推送失败，本地更改已保留".into()),
+                last_error: Some(e),
+            }
+        }
     }
-}
-
-fn is_retryable_backup_sync_error(error: &str) -> bool {
-    let lower = error.to_ascii_lowercase();
-    [
-        "network",
-        "timed out",
-        "timeout",
-        "connection",
-        "broken pipe",
-        "could not resolve host",
-        "resolve host",
-        "connection reset",
-        "connection refused",
-        "temporarily unavailable",
-        "eof",
-        "ssh",
-    ]
-    .iter()
-    .any(|keyword| lower.contains(keyword))
 }
 
 pub fn update_legacy_skill(
@@ -1257,12 +863,11 @@ pub fn update_legacy_skill(
         .find(|resource| resource.kind == ResourceKind::Skill && resource.id == input.id)
         .ok_or_else(|| format!("skill {} not found", input.id))?;
     let result = resource_to_legacy_skill(resource, &library);
-    snapshot_skill_sources_before_mutation(app, &format!("update-{}", resource.slug))?;
     save_repo_library(&repo_root, &library)?;
     ensure_skill_source(app, &resource.slug, &resource.content)?;
 
-    // Sync update to remote backup
-    let _backup_sync = sync_backup_source_after_mutation(app);
+    // Sync update to persistent clone
+    let _backup_sync = sync_after_mutation(app, &format!("Update skill: {}", result.name));
 
     Ok(result)
 }
@@ -1284,12 +889,11 @@ pub fn delete_legacy_skill(app: &tauri::AppHandle, id: &str) -> Result<(), Strin
 
     let source_dir = skill_source_dir(app, &removed_slug)?;
     if source_dir.exists() {
-        snapshot_skill_sources_before_mutation(app, &format!("delete-{}", removed_slug))?;
         remove_path(&source_dir)?;
     }
 
-    // Sync deletion to remote backup
-    let _backup_sync = sync_backup_source_after_mutation(app);
+    // Sync deletion to persistent clone
+    let _backup_sync = sync_after_mutation(app, &format!("Delete skill: {}", removed_slug));
 
     Ok(())
 }
@@ -1729,14 +1333,14 @@ pub fn repo_sync(app: &tauri::AppHandle) -> Result<RepoStatus, String> {
 
 pub fn backup_source_status(app: &tauri::AppHandle) -> Result<BackupSourceStatus, String> {
     match backup_source_settings(app)? {
-        Some(config) => backup_source_status_from_config(&config, None),
+        Some(_) => build_backup_source_status_from_clone(app),
         None => Ok(BackupSourceStatus {
-            enabled: false,
+            configured: false,
             repo: String::new(),
             label: String::new(),
             remote_url: String::new(),
             branch: "main".to_string(),
-            local_path: None,
+            local_path: String::new(),
             last_synced_at: None,
             last_synced_commit: None,
             connected: false,
@@ -1746,9 +1350,60 @@ pub fn backup_source_status(app: &tauri::AppHandle) -> Result<BackupSourceStatus
             ahead: 0,
             behind: 0,
             dirty: false,
+            last_error: None,
             notice: None,
         }),
     }
+}
+
+fn build_backup_source_status_from_clone(
+    app: &tauri::AppHandle,
+) -> Result<BackupSourceStatus, String> {
+    let settings = load_settings(app)?;
+    let config = settings
+        .backup_source
+        .ok_or_else(|| "backup source is not configured".to_string())?;
+    let normalized = normalize_backup_source(app, &config)?;
+
+    let clone_dir = PathBuf::from(
+        normalized
+            .local_path
+            .as_ref()
+            .ok_or_else(|| "backup source local_path is missing".to_string())?,
+    );
+
+    let clone_exists = clone_dir.exists();
+    let is_git = clone_exists && git::is_git_repo(&clone_dir);
+
+    let (ahead, behind) = if is_git {
+        git::ahead_behind(&clone_dir)
+    } else {
+        (0, 0)
+    };
+
+    Ok(BackupSourceStatus {
+        configured: true,
+        repo: normalized.repo,
+        label: normalized.label,
+        remote_url: normalized.remote_url,
+        branch: normalized.branch,
+        local_path: clone_dir.to_string_lossy().into_owned(),
+        last_synced_at: normalized.last_synced_at,
+        last_synced_commit: normalized.last_synced_commit,
+        connected: is_git,
+        git_available: git::git_available(),
+        is_git_repo: is_git,
+        head: if is_git { git::head(&clone_dir) } else { None },
+        ahead,
+        behind,
+        dirty: if is_git {
+            git::dirty(&clone_dir)
+        } else {
+            false
+        },
+        last_error: normalized.last_error,
+        notice: None,
+    })
 }
 
 pub fn backup_source_connect(app: &tauri::AppHandle) -> Result<BackupSourceStatus, String> {
@@ -1757,55 +1412,99 @@ pub fn backup_source_connect(app: &tauri::AppHandle) -> Result<BackupSourceStatu
         .backup_source
         .clone()
         .ok_or_else(|| "backup source is not configured".to_string())?;
-    let normalized = normalize_backup_source_for_temp(app, &source)?;
+    let normalized = normalize_backup_source(app, &source)?;
 
-    if !normalized.enabled {
-        return Err("backup source is disabled".into());
-    }
     if !git::git_available() {
         return Err("git is not available on this machine".into());
     }
 
-    // Validate remote accessibility - we just need to be able to reach the remote
-    // Branch doesn't need to exist (will create on first push)
+    // Validate remote accessibility
     let _ = git::remote_branch_exists(&normalized.remote_url, &normalized.branch)
         .map_err(|error| format!("无法访问远程仓库: {}", error))?;
 
-    let mut notices = Vec::new();
+    let clone_dir = PathBuf::from(
+        normalized
+            .local_path
+            .as_ref()
+            .ok_or_else(|| "backup source local_path is missing".to_string())?,
+    );
 
-    // Do initial pull if remote branch exists (use temp worktree)
-    if git::remote_branch_exists(&normalized.remote_url, &normalized.branch)? {
-        let mut worktree = create_temp_backup_worktree(app, &normalized)?;
-        git::pull(worktree.path())?;
-        snapshot_skill_sources_before_mutation(app, "connect-pull-from-backup-source")?;
-        sync_backup_eligible_skills_from_backup_repo(app, worktree.path())?;
+    let remote_has_branch = git::remote_branch_exists(&normalized.remote_url, &normalized.branch)?;
 
-        // Get the commit hash before cleanup
-        let new_commit = git::head(worktree.path());
-        worktree.cleanup()?;
+    if !clone_dir.exists() {
+        if let Some(parent) = clone_dir.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
 
-        notices.push("已从远程仓库同步技能".into());
-
-        let mut updated = normalized.clone();
-        updated.last_synced_at = Some(now_ms());
-        updated.last_synced_commit = new_commit;
-        settings.backup_source = Some(updated.clone());
-        save_settings(app, &settings)?;
-
-        return backup_source_status_from_config(&updated, build_backup_source_notice(notices));
+        if remote_has_branch {
+            git::clone_repository(&normalized.remote_url, &clone_dir, Some(&normalized.branch))?;
+        } else {
+            fs::create_dir_all(&clone_dir).map_err(|e| e.to_string())?;
+            git::init_repository(&clone_dir)?;
+            git::configure_identity(&clone_dir)?;
+            git::checkout_branch(&clone_dir, &normalized.branch)?;
+            git::add_remote(&clone_dir, "origin", &normalized.remote_url)?;
+        }
+    } else {
+        // Verify remote matches, fetch, pull
+        if let Ok(Some(current_remote)) = git::remote_url(&clone_dir, "origin") {
+            if current_remote != normalized.remote_url {
+                git::set_remote_url(&clone_dir, "origin", &normalized.remote_url)?;
+            }
+        }
+        if remote_has_branch {
+            let _ = git::pull(&clone_dir); // Best effort
+        }
     }
 
-    // Store config without local_path (temp worktree approach)
-    let updated = BackupSourceConfig {
-        local_path: None, // Remove local_path in new design
-        last_synced_commit: None,
-        ..normalized
-    };
+    git::configure_identity(&clone_dir)?;
 
-    settings.backup_source = Some(updated.clone());
+    // Migrate library from old location if persistent clone has no library yet
+    let clone_manifest = repo_manifest_path(&clone_dir);
+    if !clone_manifest.exists() {
+        let old_root = default_library_repo_root(app)?;
+        let old_manifest = repo_manifest_path(&old_root);
+        if old_manifest.exists() {
+            if let Some(parent) = clone_manifest.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::copy(&old_manifest, &clone_manifest).map_err(|e| e.to_string())?;
+        } else {
+            let library = RepoLibrary {
+                version: "2".into(),
+                ..Default::default()
+            };
+            save_repo_library(&clone_dir, &library)?;
+        }
+    }
+
+    // Migrate skill files from old skill-sources to persistent clone
+    let old_sources = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join(SKILL_SOURCES_DIR);
+    if old_sources.exists() && old_sources != clone_dir {
+        migrate_skill_sources_to_clone(&old_sources, &clone_dir)?;
+    }
+
+    // Commit any changes from migration
+    let _ = git::add_all(&clone_dir);
+    let _ = git::commit(&clone_dir, "SkillSwitch: initial sync");
+
+    // Try to push (best effort)
+    let _ = git::push_branch(&clone_dir, "origin", &normalized.branch);
+
+    // Update settings
+    let new_commit = git::head(&clone_dir);
+    let mut updated = normalized.clone();
+    updated.last_synced_at = Some(now_ms());
+    updated.last_synced_commit = new_commit;
+    updated.last_error = None;
+    settings.backup_source = Some(updated);
     save_settings(app, &settings)?;
 
-    backup_source_status_from_config(&updated, build_backup_source_notice(notices))
+    build_backup_source_status_from_clone(app)
 }
 
 pub fn backup_source_pull(app: &tauri::AppHandle) -> Result<BackupSourceStatus, String> {
@@ -1814,45 +1513,31 @@ pub fn backup_source_pull(app: &tauri::AppHandle) -> Result<BackupSourceStatus, 
         .backup_source
         .clone()
         .ok_or_else(|| "backup source is not configured".to_string())?;
-    let normalized = normalize_backup_source_for_temp(app, &source)?;
+    let normalized = normalize_backup_source(app, &source)?;
 
-    if !normalized.enabled {
-        return Err("backup source is disabled".into());
+    let clone_dir = PathBuf::from(
+        normalized
+            .local_path
+            .as_ref()
+            .ok_or_else(|| "backup source local_path is missing".to_string())?,
+    );
+
+    if !clone_dir.exists() || !git::is_git_repo(&clone_dir) {
+        return Err("persistent clone does not exist, please connect first".into());
     }
 
-    if !git::remote_branch_exists(&normalized.remote_url, &normalized.branch)? {
-        // Remote branch doesn't exist, nothing to pull
-        return backup_source_status_from_config(&normalized, None);
-    }
-
-    // Create temporary worktree for pull
-    let mut worktree = create_temp_backup_worktree(app, &normalized)?;
-    let temp_path = worktree.path();
-
-    // Pull latest changes
-    git::pull(temp_path)?;
-
-    // Snapshot skill-sources before mutation (existing safety mechanism)
-    snapshot_skill_sources_before_mutation(app, "pull-from-backup-source")?;
-
-    // Sync skills from temp backup to skill-sources
-    sync_backup_eligible_skills_from_backup_repo(app, temp_path)?;
-
-    // Get the new commit hash before cleanup
-    let new_commit = git::head(temp_path);
-
-    // Cleanup temp worktree
-    worktree.cleanup()?;
+    git::pull(&clone_dir)?;
 
     // Update settings
+    let new_commit = git::head(&clone_dir);
     let mut next_source = normalized.clone();
     next_source.last_synced_at = Some(now_ms());
     next_source.last_synced_commit = new_commit;
-    next_source.local_path = None; // Ensure no local_path in new design
-    settings.backup_source = Some(next_source.clone());
+    next_source.last_error = None;
+    settings.backup_source = Some(next_source);
     save_settings(app, &settings)?;
 
-    backup_source_status_from_config(&next_source, Some("已从远程仓库拉取最新内容".into()))
+    build_backup_source_status_from_clone(app)
 }
 
 pub fn backup_source_push(app: &tauri::AppHandle) -> Result<BackupSourceStatus, String> {
@@ -1861,49 +1546,93 @@ pub fn backup_source_push(app: &tauri::AppHandle) -> Result<BackupSourceStatus, 
         .backup_source
         .clone()
         .ok_or_else(|| "backup source is not configured".to_string())?;
-    let normalized = normalize_backup_source_for_temp(app, &source)?;
+    let normalized = normalize_backup_source(app, &source)?;
 
-    if !normalized.enabled {
-        return Err("backup source is disabled".into());
+    let clone_dir = PathBuf::from(
+        normalized
+            .local_path
+            .as_ref()
+            .ok_or_else(|| "backup source local_path is missing".to_string())?,
+    );
+
+    if !clone_dir.exists() || !git::is_git_repo(&clone_dir) {
+        return Err("persistent clone does not exist, please connect first".into());
     }
 
-    // Create temporary worktree (shallow clone)
-    let mut worktree = create_temp_backup_worktree(app, &normalized)?;
-    let temp_path = worktree.path();
-
-    // Materialize skills to temp worktree
-    materialize_backup_eligible_skills_to_backup_repo(app, temp_path)?;
-
-    // Git operations
-    git::configure_identity(temp_path)?;
-    git::checkout_branch(temp_path, &normalized.branch)?;
-    git::add_all(temp_path)?;
-
+    // Stage, commit, push
+    git::add_all(&clone_dir)?;
     let commit_message = format!(
         "Backup skill sources {}",
         chrono::Utc::now().format("%Y-%m-%d %H:%M")
     );
-    let committed = git::commit(temp_path, &commit_message)?;
-
+    let committed = git::commit(&clone_dir, &commit_message)?;
     if committed {
-        git::push_branch(temp_path, "origin", &normalized.branch)?;
+        git::push_branch(&clone_dir, "origin", &normalized.branch)?;
     }
 
-    // Get the new commit hash before cleanup
-    let new_commit = git::head(temp_path);
-
-    // Cleanup temp worktree (RAII handles cleanup even on error)
-    worktree.cleanup()?;
-
-    // Update settings with new sync info
+    // Update settings
+    let new_commit = git::head(&clone_dir);
     let mut next_source = normalized.clone();
     next_source.last_synced_at = Some(now_ms());
     next_source.last_synced_commit = new_commit;
-    next_source.local_path = None; // Ensure no local_path in new design
-    settings.backup_source = Some(next_source.clone());
+    next_source.last_error = None;
+    settings.backup_source = Some(next_source);
     save_settings(app, &settings)?;
 
-    backup_source_status_from_config(&next_source, None)
+    build_backup_source_status_from_clone(app)
+}
+
+pub fn backup_source_bootstrap(
+    app: &tauri::AppHandle,
+    input: &crate::domain::BootstrapBackupInput,
+) -> Result<BackupSourceStatus, String> {
+    let branch = input.branch.as_deref().unwrap_or("main");
+    let remote_url = input.remote_url.trim();
+
+    if remote_url.is_empty() {
+        return Err("远程仓库地址不能为空".into());
+    }
+
+    // Derive repo identifier from URL
+    let repo = parse_repo_from_remote_url(remote_url)
+        .ok_or_else(|| "无法识别仓库地址，请使用 SSH 或 HTTPS 格式".to_string())?;
+
+    let config = BackupSourceConfig {
+        repo: repo.clone(),
+        label: repo.clone(),
+        remote_url: remote_url.to_string(),
+        branch: branch.to_string(),
+        local_path: None,
+        last_synced_at: None,
+        last_synced_commit: None,
+        last_error: None,
+    };
+
+    let normalized = normalize_backup_source(app, &config)?;
+
+    // Save config first so connect can read it
+    let mut settings = load_settings(app)?;
+    settings.backup_source = Some(normalized);
+    save_settings(app, &settings)?;
+
+    // Now connect
+    backup_source_connect(app)
+}
+
+pub fn backup_source_startup_sync(app: &tauri::AppHandle) -> Result<(), String> {
+    let settings = load_settings(app)?;
+    if settings.backup_source.is_none() {
+        return Ok(());
+    }
+
+    if let Some(clone_dir) = persistent_clone_dir(app)? {
+        if clone_dir.exists() && git::is_git_repo(&clone_dir) {
+            // Best effort pull on startup
+            let _ = git::pull(&clone_dir);
+        }
+    }
+
+    Ok(())
 }
 
 pub fn apply_project_profile(
@@ -2619,6 +2348,7 @@ fn resource_to_legacy_skill(resource: &Resource, library: &RepoLibrary) -> Legac
         project_ids,
         created_at: resource.created_at,
         updated_at: resource.updated_at,
+        provenance: resource.provenance.clone(),
     }
 }
 
@@ -2788,6 +2518,7 @@ fn upsert_project_resource(
         forked_from: None,
         created_at: now_ms(),
         updated_at: now_ms(),
+        provenance: Default::default(),
     };
     let id = resource.id.clone();
     resources.push(resource);
@@ -2851,7 +2582,6 @@ fn default_source_path_for_resource(resource: &Resource) -> String {
 // ─── Backup functions ──────────────────────────────────────────────────────────
 
 const BACKUPS_DIR: &str = "backups";
-const SKILL_SOURCE_SNAPSHOTS_DIR: &str = "skill-source-snapshots";
 const SETTINGS_FILE: &str = "settings.json";
 
 fn backups_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -2863,10 +2593,6 @@ fn backups_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn resolved_backup_path(app: &tauri::AppHandle) -> Result<String, String> {
     backups_dir(app).map(|path| path.to_string_lossy().into_owned())
-}
-
-fn skill_source_snapshots_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    backups_dir(app).map(|path| path.join(SKILL_SOURCE_SNAPSHOTS_DIR))
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -2886,56 +2612,6 @@ fn remove_path(path: &Path) -> Result<(), String> {
     } else {
         fs::remove_file(path).map_err(|error| error.to_string())
     }
-}
-
-fn prune_skill_source_snapshots(root: &Path, max_backups: usize) -> Result<(), String> {
-    if !root.exists() {
-        return Ok(());
-    }
-
-    let mut entries = fs::read_dir(root)
-        .map_err(|error| error.to_string())?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().is_dir())
-        .collect::<Vec<_>>();
-
-    entries.sort_by_key(|entry| entry.file_name());
-
-    if entries.len() <= max_backups {
-        return Ok(());
-    }
-
-    let remove_count = entries.len() - max_backups;
-    for entry in entries.into_iter().take(remove_count) {
-        remove_path(&entry.path())?;
-    }
-
-    Ok(())
-}
-
-fn snapshot_skill_sources_before_mutation(
-    app: &tauri::AppHandle,
-    reason: &str,
-) -> Result<Option<PathBuf>, String> {
-    let source_root = skill_sources_dir(app)?;
-    if !source_root.exists() || directory_is_effectively_empty(&source_root)? {
-        return Ok(None);
-    }
-
-    let settings = load_settings(app)?;
-    let snapshot_root = skill_source_snapshots_dir(app)?;
-    fs::create_dir_all(&snapshot_root).map_err(|error| error.to_string())?;
-
-    let snapshot_path = snapshot_root.join(format!(
-        "skill-sources-{}-{}-{}",
-        now_ms(),
-        slugify(reason),
-        Uuid::new_v4()
-    ));
-    copy_dir_all(&source_root, &snapshot_path)?;
-    prune_skill_source_snapshots(&snapshot_root, settings.max_backups.max(1) as usize)?;
-
-    Ok(Some(snapshot_path))
 }
 
 fn backup_source_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -3023,7 +2699,6 @@ fn normalize_backup_source(
     );
 
     Ok(BackupSourceConfig {
-        enabled: source.enabled,
         repo,
         label,
         remote_url,
@@ -3031,238 +2706,8 @@ fn normalize_backup_source(
         local_path,
         last_synced_at: source.last_synced_at,
         last_synced_commit: source.last_synced_commit.clone(),
+        last_error: source.last_error.clone(),
     })
-}
-
-/// Normalize backup source config for temporary worktree approach (no local_path)
-fn normalize_backup_source_for_temp(
-    _app: &tauri::AppHandle,
-    source: &BackupSourceConfig,
-) -> Result<BackupSourceConfig, String> {
-    let repo = {
-        let trimmed = source.repo.trim();
-        if !trimmed.is_empty() {
-            trimmed.trim_end_matches(".git").to_string()
-        } else if let Some(repo) = parse_repo_from_remote_url(&source.remote_url) {
-            repo
-        } else {
-            return Err("backup source repo is required".into());
-        }
-    };
-
-    let label = {
-        let trimmed = source.label.trim();
-        if trimmed.is_empty() {
-            repo.clone()
-        } else {
-            trimmed.to_string()
-        }
-    };
-
-    let remote_url = {
-        let trimmed = source.remote_url.trim();
-        if trimmed.is_empty() {
-            backup_source_remote_url(&repo)
-        } else {
-            trimmed.to_string()
-        }
-    };
-
-    let branch = {
-        let trimmed = source.branch.trim();
-        if trimmed.is_empty() {
-            "main".to_string()
-        } else {
-            trimmed.to_string()
-        }
-    };
-
-    Ok(BackupSourceConfig {
-        enabled: source.enabled,
-        repo,
-        label,
-        remote_url,
-        branch,
-        local_path: None, // No local path in temp worktree approach
-        last_synced_at: source.last_synced_at,
-        last_synced_commit: source.last_synced_commit.clone(),
-    })
-}
-
-fn directory_is_effectively_empty(root: &Path) -> Result<bool, String> {
-    if !root.exists() {
-        return Ok(true);
-    }
-
-    for entry in fs::read_dir(root).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name != ".git" {
-            return Ok(false);
-        }
-    }
-
-    Ok(true)
-}
-
-fn build_backup_source_notice(notices: Vec<String>) -> Option<String> {
-    let joined = notices
-        .into_iter()
-        .map(|notice| notice.trim().to_string())
-        .filter(|notice| !notice.is_empty())
-        .collect::<Vec<_>>()
-        .join("；");
-    (!joined.is_empty()).then_some(joined)
-}
-
-fn connected_repo_root_if_available(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
-    let mut state = load_local_state(app)?;
-    ensure_local_library_repo_root(app, &mut state).map(Some)
-}
-
-// ─── Temporary Backup Worktree (RAII) ─────────────────────────────────────────────
-
-/// RAII-style guard for temporary backup worktree cleanup.
-/// Ensures cleanup happens even on error via Drop trait.
-struct TempBackupWorktree {
-    path: PathBuf,
-    cleaned: bool,
-}
-
-impl TempBackupWorktree {
-    fn new(path: PathBuf) -> Self {
-        Self { path, cleaned: false }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-
-    fn cleanup(&mut self) -> Result<(), String> {
-        if self.cleaned {
-            return Ok(());
-        }
-        self.cleaned = true;
-        remove_path(&self.path)
-    }
-}
-
-impl Drop for TempBackupWorktree {
-    fn drop(&mut self) {
-        if !self.cleaned {
-            // Attempt cleanup on drop, log error if fails silently
-            let _ = remove_path(&self.path);
-        }
-    }
-}
-
-/// Create a temporary backup worktree for push/pull operations.
-/// Uses shallow clone (--depth 1) for speed.
-fn create_temp_backup_worktree(
-    app: &tauri::AppHandle,
-    config: &BackupSourceConfig,
-) -> Result<TempBackupWorktree, String> {
-    let temp_path = temp_backup_source_clone_dir(app, &config.repo)?;
-
-    // Remove any existing temp directory
-    if temp_path.exists() {
-        remove_path(&temp_path)?;
-    }
-
-    // Create parent directory
-    if let Some(parent) = temp_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-
-    // Check if remote branch exists
-    let remote_has_branch = git::remote_branch_exists(&config.remote_url, &config.branch)?;
-
-    if remote_has_branch {
-        // Shallow clone from remote
-        git::shallow_clone(&config.remote_url, &temp_path, Some(&config.branch))?;
-        git::configure_identity(&temp_path)?;
-    } else {
-        // Initialize empty repo for first push
-        fs::create_dir_all(&temp_path).map_err(|error| error.to_string())?;
-        git::init_repository(&temp_path)?;
-        git::configure_identity(&temp_path)?;
-        git::checkout_branch(&temp_path, &config.branch)?;
-        git::add_remote(&temp_path, "origin", &config.remote_url)?;
-    }
-
-    Ok(TempBackupWorktree::new(temp_path))
-}
-
-fn temp_backup_source_clone_dir(app: &tauri::AppHandle, repo: &str) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())
-        .map(|path| path.join(format!(".tmp-backup-source-{}-{}", slugify(repo), now_ms())))
-}
-
-fn backup_source_status_from_config(
-    config: &BackupSourceConfig,
-    notice: Option<String>,
-) -> Result<BackupSourceStatus, String> {
-    // New approach: status is computed without local worktree
-    // Use last_synced_commit to determine ahead/behind status
-    let git_available = git::git_available();
-
-    // Try to get remote branch hash for ahead/behind calculation
-    let remote_head = if git_available {
-        git::fetch_remote_branch_hash(&config.remote_url, &config.branch).ok().flatten()
-    } else {
-        None
-    };
-
-    // Compute ahead/behind based on last_synced_commit vs remote_head
-    let (ahead, behind) = compute_ahead_behind_from_remote(config, remote_head.as_deref());
-
-    Ok(BackupSourceStatus {
-        enabled: config.enabled,
-        repo: config.repo.clone(),
-        label: config.label.clone(),
-        remote_url: config.remote_url.clone(),
-        branch: config.branch.clone(),
-        local_path: None, // No longer maintain a local worktree
-        last_synced_at: config.last_synced_at,
-        last_synced_commit: config.last_synced_commit.clone(),
-        connected: false, // No persistent connection in new design
-        git_available,
-        is_git_repo: false, // No local repo
-        head: None,         // No local repo
-        ahead,
-        behind,
-        dirty: false, // No local repo
-        notice,
-    })
-}
-
-/// Compute ahead/behind status by comparing last_synced_commit with remote HEAD.
-/// - ahead: local has changes since last sync (we don't track this precisely, assume 0)
-/// - behind: remote has new commits since last sync
-fn compute_ahead_behind_from_remote(config: &BackupSourceConfig, remote_head: Option<&str>) -> (usize, usize) {
-    // If we have no remote head, we can't compute
-    if remote_head.is_none() {
-        return (0, 0);
-    }
-    let remote_head = remote_head.unwrap();
-
-    // If we have never synced, assume we are behind (need to pull)
-    if config.last_synced_commit.is_none() {
-        return (0, 1);
-    }
-    let last_synced = config.last_synced_commit.as_deref().unwrap();
-
-    // Simple comparison: if hashes differ, we are behind
-    // More precise calculation would require fetching commit history
-    if last_synced != remote_head {
-        // Assume we are behind by at least 1 commit
-        // In practice, user should pull to sync
-        (0, 1)
-    } else {
-        (0, 0)
-    }
 }
 
 fn backup_source_settings(app: &tauri::AppHandle) -> Result<Option<BackupSourceConfig>, String> {
@@ -3524,8 +2969,29 @@ pub fn remove_symlink(link_path: &Path) -> Result<(), String> {
 // Skill Source Directory Management
 // =============================================================================
 
-/// Get the directory where skill source files are stored
+/// Get the persistent clone directory (primary storage when backup source is configured).
+fn persistent_clone_dir(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    let config = backup_source_settings(app)?;
+    match config {
+        Some(config) => {
+            let local_path = config
+                .local_path
+                .ok_or_else(|| "backup source local_path is missing".to_string())?;
+            Ok(Some(PathBuf::from(local_path)))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Get the directory where skill source files are stored.
+/// When a backup source is configured and the persistent clone exists, returns that directory.
+/// Otherwise falls back to the legacy skill-sources directory.
 fn skill_sources_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(clone_dir) = persistent_clone_dir(app)? {
+        if clone_dir.exists() {
+            return Ok(clone_dir);
+        }
+    }
     app.path()
         .app_data_dir()
         .map_err(|error| error.to_string())
@@ -3802,115 +3268,6 @@ pub fn repair_broken_symlinks(
     })
 }
 
-// =============================================================================
-// Migration System
-// =============================================================================
-
-/// Result of migrating copied skills to symlinks
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MigrationResult {
-    pub migrated_count: usize,
-    pub skipped_count: usize,
-    pub errors: Vec<String>,
-}
-
-/// Migrate existing copied skills to symlinks
-/// Scans all CLI directories for copied skills and converts them to symlinks
-pub fn migrate_copied_skills_to_symlinks(
-    app: &tauri::AppHandle,
-) -> Result<MigrationResult, String> {
-    // Check if migration has already been done
-    let state = load_local_state(app)?;
-    if state.migrated_symlinks {
-        return Ok(MigrationResult {
-            migrated_count: 0,
-            skipped_count: 0,
-            errors: Vec::new(),
-        });
-    }
-
-    let home_dir = app.path().home_dir().map_err(|e| e.to_string())?;
-    let sources_dir = skill_sources_dir(app)?;
-
-    let mut migrated_count = 0;
-    let mut skipped_count = 0;
-    let mut errors = Vec::new();
-
-    // Apps to check
-    let apps = ["claude", "codex", "cursor"];
-
-    for app_id in apps {
-        for skills_dir in app_skill_dirs(&home_dir, app_id)? {
-            if !skills_dir.exists() {
-                continue;
-            }
-
-            let entries = match fs::read_dir(&skills_dir) {
-                Ok(e) => e,
-                Err(e) => {
-                    errors.push(format!("Failed to read {} skills directory: {}", app_id, e));
-                    continue;
-                }
-            };
-
-            for entry in entries.flatten() {
-                let skill_path = entry.path();
-
-                if is_symlink(&skill_path) || !skill_path.is_dir() {
-                    continue;
-                }
-
-                let skill_file = skill_path.join("SKILL.md");
-                if !skill_file.exists() {
-                    continue;
-                }
-
-                let slug = match skill_path.file_name() {
-                    Some(name) => name.to_string_lossy().to_string(),
-                    None => continue,
-                };
-
-                let source_dir = sources_dir.join(&slug);
-                if source_dir.exists() && source_dir.join("SKILL.md").exists() {
-                    match fs::remove_dir_all(&skill_path) {
-                        Ok(()) => match create_skill_symlink(&skill_path, &source_dir) {
-                            Ok(()) => {
-                                migrated_count += 1;
-                            }
-                            Err(e) => {
-                                errors.push(format!(
-                                    "Failed to create symlink for {} in {}: {}",
-                                    slug, app_id, e
-                                ));
-                            }
-                        },
-                        Err(e) => {
-                            errors.push(format!(
-                                "Failed to remove copied skill {} in {}: {}",
-                                slug, app_id, e
-                            ));
-                        }
-                    }
-                } else {
-                    skipped_count += 1;
-                }
-            }
-        }
-    }
-
-    // Mark migration as complete
-    let mut state = load_local_state(app)?;
-    state.migrated_symlinks = true;
-    save_local_state(app, &state)?;
-
-    Ok(MigrationResult {
-        migrated_count,
-        skipped_count,
-        errors,
-    })
-}
-
 /// Remove CLI folders from a project directory
 /// This removes the entire CLI config folders, including .codex for Codex.
 pub fn remove_project_cli_folders(
@@ -3962,144 +3319,6 @@ pub fn remove_project_cli_folders(
         removed_apps,
         failed_apps,
     })
-}
-
-/// Sync skills from skill-sources directory to library
-/// Scans skill-sources for all valid skills and ensures they exist in the library
-pub fn skill_sources_to_library_sync(app: &tauri::AppHandle) -> Result<(), String> {
-    let Some(repo_root) = connected_repo_root_if_available(app)? else {
-        return Ok(());
-    };
-
-    let sources_root = skill_sources_dir(app)?;
-    if !sources_root.exists() {
-        return Ok(());
-    }
-
-    let mut library = load_repo_library(&repo_root)?;
-    let now = now_ms();
-    let mut changed = false;
-    let mut existing_by_slug = HashMap::new();
-
-    for (index, resource) in library.resources.iter().enumerate() {
-        if is_managed_skill_resource(resource) {
-            existing_by_slug.insert(resource.slug.clone(), index);
-        }
-    }
-
-    // Scan skill-sources directory
-    for entry in fs::read_dir(&sources_root).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        let slug = entry.file_name().to_string_lossy().into_owned();
-
-        if slug.starts_with('.') || !path.is_dir() {
-            continue;
-        }
-
-        let skill_file = path.join("SKILL.md");
-        if !skill_file.exists() {
-            continue;
-        }
-
-        let content = fs::read_to_string(&skill_file).map_err(|e| e.to_string())?;
-        let revision = compute_revision(&content);
-        let (name, description, tags) = derive_skill_source_metadata(&slug, &content, None);
-
-        if let Some(index) = existing_by_slug.get(&slug).copied() {
-            // Update existing skill
-            if let Some(resource) = library.resources.get_mut(index) {
-                let mut resource_changed = false;
-
-                if resource.title != name {
-                    resource.title = name;
-                    resource_changed = true;
-                }
-                if resource.description != description {
-                    resource.description = description;
-                    resource_changed = true;
-                }
-                if resource.tags != tags {
-                    resource.tags = tags;
-                    resource_changed = true;
-                }
-                if resource.content != content {
-                    resource.content = content.clone();
-                    resource_changed = true;
-                }
-                if resource.revision != revision {
-                    resource.revision = revision;
-                    resource_changed = true;
-                }
-
-                if resource_changed {
-                    resource.updated_at = now;
-                    changed = true;
-                }
-            }
-        } else {
-            // Add new skill
-            library.resources.push(Resource {
-                id: Uuid::new_v4().to_string(),
-                slug: slug.clone(),
-                title: name,
-                description,
-                kind: ResourceKind::Skill,
-                scope: ResourceScope::Global,
-                origin: ResourceOrigin::Private,
-                source_status: SourceStatus::LocalOnly,
-                project_id: None,
-                tags,
-                content,
-                revision,
-                source_url: None,
-                source_ref: None,
-                source_path: None,
-                upstream_revision: None,
-                forked_from: None,
-                created_at: now,
-                updated_at: now,
-            });
-            changed = true;
-        }
-    }
-
-    // Remove self-created skills whose slug no longer exists in skill-sources
-    let on_disk_slugs: HashSet<String> = {
-        let mut slugs = HashSet::new();
-        if let Ok(entries) = fs::read_dir(&sources_root) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let slug = entry.file_name().to_string_lossy().into_owned();
-                if !slug.starts_with('.') && path.is_dir() && path.join("SKILL.md").exists() {
-                    slugs.insert(slug);
-                }
-            }
-        }
-        slugs
-    };
-
-    let before_len = library.resources.len();
-    library.resources.retain(|resource| {
-        if !is_managed_skill_resource(resource) {
-            return true;
-        }
-        // Keep third-party / remote skills — they are managed by repo-source sync
-        if skill_has_remote_tag(resource) {
-            return true;
-        }
-        // Keep skills whose slug still exists on disk
-        on_disk_slugs.contains(&resource.slug)
-    });
-    if library.resources.len() != before_len {
-        changed = true;
-    }
-
-    if changed {
-        save_repo_library(&repo_root, &library)?;
-    }
-
-    Ok(())
 }
 
 // ─── Global skill install functions ─────────────────────────────────────────────
@@ -4316,8 +3535,6 @@ pub fn import_skill_from_folder(
     // Generate slug first
     let slug = slugify(&name);
 
-    snapshot_skill_sources_before_mutation(app, &format!("import-folder-{}", slug))?;
-
     // Copy the entire folder to skill-sources directory
     let target_dir = skill_source_dir(app, &slug)?;
     if target_dir.exists() {
@@ -4336,7 +3553,30 @@ pub fn import_skill_from_folder(
         project_ids: vec![],
     };
 
-    create_legacy_skill_internal(app, &input, false).map(|result| result.skill)
+    let result = create_legacy_skill_internal(app, &input, false)?;
+    // Update provenance for file import
+    let repo_root = connected_repo_root(app)?;
+    let mut library = load_repo_library(&repo_root)?;
+    if let Some(resource) = library
+        .resources
+        .iter_mut()
+        .find(|r| r.id == result.skill.id)
+    {
+        resource.provenance = Provenance {
+            kind: ProvenanceKind::FileImport,
+            label: "导入".to_string(),
+            ..Default::default()
+        };
+    }
+    save_repo_library(&repo_root, &library)?;
+    Ok(LegacySkillDto {
+        provenance: Provenance {
+            kind: ProvenanceKind::FileImport,
+            label: "导入".into(),
+            ..Default::default()
+        },
+        ..result.skill
+    })
 }
 
 /// Import a skill from a zip file
@@ -4401,8 +3641,6 @@ pub fn import_skill_from_zip(
     // Generate slug
     let slug = slugify(&name);
 
-    snapshot_skill_sources_before_mutation(app, &format!("import-zip-{}", slug))?;
-
     // Extract all files to skill-sources directory
     let target_dir = skill_source_dir(app, &slug)?;
     if target_dir.exists() {
@@ -4459,7 +3697,149 @@ pub fn import_skill_from_zip(
         project_ids: vec![],
     };
 
-    create_legacy_skill_internal(app, &input, false).map(|result| result.skill)
+    let result = create_legacy_skill_internal(app, &input, false)?;
+    // Update provenance for zip import
+    let repo_root = connected_repo_root(app)?;
+    let mut library = load_repo_library(&repo_root)?;
+    if let Some(resource) = library
+        .resources
+        .iter_mut()
+        .find(|r| r.id == result.skill.id)
+    {
+        resource.provenance = Provenance {
+            kind: ProvenanceKind::FileImport,
+            label: "导入".to_string(),
+            ..Default::default()
+        };
+    }
+    save_repo_library(&repo_root, &library)?;
+    Ok(LegacySkillDto {
+        provenance: Provenance {
+            kind: ProvenanceKind::FileImport,
+            label: "导入".into(),
+            ..Default::default()
+        },
+        ..result.skill
+    })
+}
+
+/// Import a skill from a third-party repo source
+pub fn import_skill_from_repo_source(
+    app: &tauri::AppHandle,
+    input: &crate::domain::ImportRepoSourceSkillInput,
+) -> Result<SkillMutationResult, String> {
+    // Find repo source local path
+    let settings = get_settings(app)?;
+    let repo = settings
+        .third_party_repos
+        .iter()
+        .find(|r| r.id == input.repo_id)
+        .ok_or_else(|| format!("repo source {} not found", input.repo_id))?
+        .clone();
+
+    let repo_local_path = PathBuf::from(
+        repo.local_path
+            .as_ref()
+            .ok_or_else(|| "repo source has no local path, sync first".to_string())?,
+    );
+
+    // Find skill in repo source
+    let source_path = repo_local_path.join(&input.skill_path);
+    if !source_path.exists() || !source_path.is_dir() {
+        return Err(format!(
+            "skill path not found in repo source: {}",
+            input.skill_path
+        ));
+    }
+
+    let skill_md = source_path.join("SKILL.md");
+    if !skill_md.exists() {
+        return Err("SKILL.md not found in source path".into());
+    }
+
+    let content = fs::read_to_string(&skill_md).map_err(|e| e.to_string())?;
+    let (name, description, _) = derive_skill_source_metadata(&input.skill_slug, &content, None);
+    let slug = slugify(&name);
+
+    // Copy entire directory to persistent clone
+    let target_dir = skill_source_dir(app, &slug)?;
+    if target_dir.exists() {
+        fs::remove_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    }
+    copy_dir_all(&source_path, &target_dir)?;
+
+    // Create skill in library
+    let repo_root = connected_repo_root(app)?;
+    let mut library = load_repo_library_for_legacy_skills(app, &repo_root)?;
+    let now = now_ms();
+
+    let provenance = Provenance {
+        kind: ProvenanceKind::RepoSource,
+        label: "仓库源导入".to_string(),
+        source_id: Some(repo.id.clone()),
+        source_name: Some(repo.label.clone()),
+        source_url: Some(repo.url.clone()),
+        source_path: Some(input.skill_path.clone()),
+        app_id: None,
+    };
+
+    // Check for existing skill with same slug
+    if let Some(existing) = library
+        .resources
+        .iter_mut()
+        .find(|r| is_managed_skill_resource(r) && r.slug == slug)
+    {
+        existing.content = content.clone();
+        existing.revision = compute_revision(&content);
+        existing.title = name;
+        existing.description = description;
+        existing.provenance = provenance.clone();
+        existing.updated_at = now;
+    } else {
+        library.resources.push(Resource {
+            id: Uuid::new_v4().to_string(),
+            slug: slug.clone(),
+            title: name,
+            description,
+            kind: ResourceKind::Skill,
+            scope: ResourceScope::Global,
+            origin: ResourceOrigin::Private,
+            source_status: SourceStatus::LocalOnly,
+            project_id: None,
+            tags: vec![],
+            content: content.clone(),
+            revision: compute_revision(&content),
+            source_url: None,
+            source_ref: None,
+            source_path: None,
+            upstream_revision: None,
+            forked_from: None,
+            provenance: provenance.clone(),
+            created_at: now,
+            updated_at: now,
+        });
+    }
+
+    save_repo_library(&repo_root, &library)?;
+
+    let backup_sync = sync_after_mutation(app, &format!("Import from repo source: {}", slug));
+
+    let resource = library
+        .resources
+        .iter()
+        .find(|r| r.kind == ResourceKind::Skill && r.slug == slug)
+        .ok_or("imported skill not found after save")?;
+
+    Ok(SkillMutationResult {
+        skill: resource_to_legacy_skill(resource, &library),
+        sync: SyncStatus {
+            status: backup_sync.status,
+            message: backup_sync.message,
+            last_error: backup_sync.last_error,
+            ahead: 0,
+            behind: 0,
+        },
+    })
 }
 
 /// Parse skill metadata (name, description) from SKILL.md content
