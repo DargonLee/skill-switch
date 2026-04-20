@@ -6,7 +6,10 @@ import type {
   UpdateSkillInput,
 } from "../types";
 
-export function formatSkillOperationError(error: string, action: "安装" | "保存" = "安装"): string {
+export function formatSkillOperationError(
+  error: string,
+  action: "安装" | "保存" = "安装"
+): string {
   if (error.includes("library repo is not connected")) {
     return `${action}失败：我的库仓库尚未连接`;
   }
@@ -34,7 +37,9 @@ export async function skillGet(id: string): Promise<Result<Skill | null>> {
  * Create a new skill
  * Maps to backend: skill_create(CreateSkillInput) -> CreateSkillResult
  */
-export async function skillCreate(input: CreateSkillInput): Promise<Result<CreateSkillResult>> {
+export async function skillCreate(
+  input: CreateSkillInput
+): Promise<Result<CreateSkillResult>> {
   return tauriInvoke<CreateSkillResult>("skill_create", { input });
 }
 
@@ -42,7 +47,9 @@ export async function skillCreate(input: CreateSkillInput): Promise<Result<Creat
  * Update an existing skill
  * Maps to backend: skill_update(UpdateSkillInput) -> LegacySkillDto
  */
-export async function skillUpdate(input: UpdateSkillInput): Promise<Result<Skill>> {
+export async function skillUpdate(
+  input: UpdateSkillInput
+): Promise<Result<Skill>> {
   return tauriInvoke<Skill>("skill_update", { input });
 }
 
@@ -80,7 +87,9 @@ export interface InstallSkillToProjectResult {
 export async function skillInstallToProject(
   input: InstallSkillToProjectInput
 ): Promise<Result<InstallSkillToProjectResult>> {
-  return tauriInvoke<InstallSkillToProjectResult>("skill_install_to_project", { input });
+  return tauriInvoke<InstallSkillToProjectResult>("skill_install_to_project", {
+    input,
+  });
 }
 
 /**
@@ -90,7 +99,10 @@ export async function skillInstallToProject(
 export async function skillUninstallFromProject(
   input: InstallSkillToProjectInput
 ): Promise<Result<InstallSkillToProjectResult>> {
-  return tauriInvoke<InstallSkillToProjectResult>("skill_uninstall_from_project", { input });
+  return tauriInvoke<InstallSkillToProjectResult>(
+    "skill_uninstall_from_project",
+    { input }
+  );
 }
 
 /**
@@ -110,7 +122,9 @@ export interface RemoveProjectCliResult {
 export async function projectRemoveCliFolders(
   input: RemoveProjectCliInput
 ): Promise<Result<RemoveProjectCliResult>> {
-  return tauriInvoke<RemoveProjectCliResult>("project_remove_cli_folders", { input });
+  return tauriInvoke<RemoveProjectCliResult>("project_remove_cli_folders", {
+    input,
+  });
 }
 
 /**
@@ -130,7 +144,9 @@ export interface InstallSkillGlobalResult {
 export async function skillInstallGlobal(
   input: InstallSkillGlobalInput
 ): Promise<Result<InstallSkillGlobalResult>> {
-  return tauriInvoke<InstallSkillGlobalResult>("skill_install_global", { input });
+  return tauriInvoke<InstallSkillGlobalResult>("skill_install_global", {
+    input,
+  });
 }
 
 /**
@@ -140,7 +156,9 @@ export async function skillInstallGlobal(
 export async function skillUninstallGlobal(
   input: InstallSkillGlobalInput
 ): Promise<Result<InstallSkillGlobalResult>> {
-  return tauriInvoke<InstallSkillGlobalResult>("skill_uninstall_global", { input });
+  return tauriInvoke<InstallSkillGlobalResult>("skill_uninstall_global", {
+    input,
+  });
 }
 
 /**
@@ -169,7 +187,9 @@ export interface CheckSymlinkStatusResult {
 export async function skillCheckSymlinkStatus(
   input: CheckSymlinkStatusInput
 ): Promise<Result<CheckSymlinkStatusResult>> {
-  return tauriInvoke<CheckSymlinkStatusResult>("skill_check_symlink_status", { input });
+  return tauriInvoke<CheckSymlinkStatusResult>("skill_check_symlink_status", {
+    input,
+  });
 }
 
 /**
@@ -184,7 +204,10 @@ export interface RepairBrokenSymlinksResult {
 export async function skillRepairBrokenSymlinks(
   input: CheckSymlinkStatusInput
 ): Promise<Result<RepairBrokenSymlinksResult>> {
-  return tauriInvoke<RepairBrokenSymlinksResult>("skill_repair_broken_symlinks", { input });
+  return tauriInvoke<RepairBrokenSymlinksResult>(
+    "skill_repair_broken_symlinks",
+    { input }
+  );
 }
 
 /**
@@ -233,7 +256,10 @@ export async function skillExportToZip(
 export async function skillListDirectory(
   input: import("../types").SkillDirectoryInput
 ): Promise<Result<import("../types").SkillDirectoryListing>> {
-  return tauriInvoke<import("../types").SkillDirectoryListing>("skill_list_directory", { input });
+  return tauriInvoke<import("../types").SkillDirectoryListing>(
+    "skill_list_directory",
+    { input }
+  );
 }
 
 /**
@@ -243,7 +269,9 @@ export async function skillListDirectory(
 export async function skillReadFile(
   input: import("../types").SkillFileInput
 ): Promise<Result<import("../types").SkillFileContent>> {
-  return tauriInvoke<import("../types").SkillFileContent>("skill_read_file", { input });
+  return tauriInvoke<import("../types").SkillFileContent>("skill_read_file", {
+    input,
+  });
 }
 
 /**
@@ -258,7 +286,9 @@ export async function showInFinder(path: string): Promise<Result<void>> {
  * Show a skill's source directory in the system file manager
  * Maps to backend: skill_show_in_finder(skill_id) -> ()
  */
-export async function skillShowInFinder(skillId: string): Promise<Result<void>> {
+export async function skillShowInFinder(
+  skillId: string
+): Promise<Result<void>> {
   return tauriInvoke<void>("skill_show_in_finder", { skillId });
 }
 
@@ -269,7 +299,10 @@ export async function skillShowInFinder(skillId: string): Promise<Result<void>> 
 export async function scanExternalSkills(
   appId: string
 ): Promise<Result<import("../types").ExternalSkill[]>> {
-  return tauriInvoke<import("../types").ExternalSkill[]>("scan_external_skills", { appId });
+  return tauriInvoke<import("../types").ExternalSkill[]>(
+    "scan_external_skills",
+    { appId }
+  );
 }
 
 /**

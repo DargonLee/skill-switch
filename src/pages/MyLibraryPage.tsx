@@ -39,9 +39,17 @@ import {
   skillReadFile,
   skillShowInFinder,
   openWithTypora,
+  showInFinder,
 } from "../services/skill";
 import { IconButton } from "../components/ui/IconButton";
-import type { Skill, SkillDirectoryListing, SkillDirectoryEntry, SkillFileContent, ExternalSkill, Provenance } from "../types";
+import type {
+  Skill,
+  SkillDirectoryListing,
+  SkillDirectoryEntry,
+  SkillFileContent,
+  ExternalSkill,
+  Provenance,
+} from "../types";
 import modalStyles from "../components/layout/AppShell.module.css";
 import s from "./MyLibraryPage.module.css";
 
@@ -69,12 +77,20 @@ function formatDate(ts: number): string {
 function getProvenanceBadge(provenance?: Provenance): string {
   if (!provenance) return "";
   switch (provenance.kind) {
-    case "manual": return "";
-    case "file-import": return "导入";
-    case "external-app": return provenance.label || "外部导入";
-    case "marketplace": return "市场导入";
-    case "repo-source": return provenance.sourceName ? `仓库源 · ${provenance.sourceName}` : "仓库源导入";
-    default: return "";
+    case "manual":
+      return "";
+    case "file-import":
+      return "导入";
+    case "external-app":
+      return provenance.label || "外部导入";
+    case "marketplace":
+      return "市场导入";
+    case "repo-source":
+      return provenance.sourceName
+        ? `仓库源 · ${provenance.sourceName}`
+        : "仓库源导入";
+    default:
+      return "";
   }
 }
 
@@ -84,7 +100,11 @@ function getAppMeta(appId: string) {
 
 interface ExternalImportPreviewState {
   skill: ExternalSkill;
-  entries: Array<{ name: string; kind: "file" | "directory"; isSymlink: boolean }>;
+  entries: Array<{
+    name: string;
+    kind: "file" | "directory";
+    isSymlink: boolean;
+  }>;
   duplicateSkill: Skill | null;
 }
 
@@ -152,7 +172,11 @@ function ExternalSkillCard({
   const initial = skill.name.charAt(0).toUpperCase();
 
   return (
-    <div className={`${s.card} ${s.cardExternal} ${selected ? s.cardSelected : ""}`} onClick={onClick} style={{ cursor: onClick ? "pointer" : undefined }}>
+    <div
+      className={`${s.card} ${s.cardExternal} ${selected ? s.cardSelected : ""}`}
+      onClick={onClick}
+      style={{ cursor: onClick ? "pointer" : undefined }}
+    >
       <div className={s.cardContent}>
         <div
           className={s.cardIcon}
@@ -174,7 +198,10 @@ function ExternalSkillCard({
         </div>
         <button
           className={s.cardImportBtn}
-          onClick={(e) => { e.stopPropagation(); onImport(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onImport();
+          }}
           title="导入到 SkillSwitch 管理"
         >
           <Download size={14} />
@@ -211,6 +238,13 @@ function ExternalDetailPanel({
             <h2 className={s.detailName}>{skill.name}</h2>
             <span className={s.detailSlug}>{skill.slug}</span>
           </div>
+          <IconButton
+            icon={<ExternalLink size={16} />}
+            variant="default"
+            title="在 Finder 中显示"
+            onClick={() => void showInFinder(skill.path)}
+            aria-label="在 Finder 中显示"
+          />
         </div>
 
         {/* Meta info */}
@@ -219,19 +253,35 @@ function ExternalDetailPanel({
             <div className={s.externalDetailRow}>
               <span className={s.externalDetailLabel}>来源</span>
               <span className={s.externalDetailValue}>
-                <img src={appMeta.iconSrc} alt="" style={{ width: 14, height: 14, borderRadius: 3, verticalAlign: -2 }} />
-                {" "}{appMeta.label}
+                <img
+                  src={appMeta.iconSrc}
+                  alt=""
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: 3,
+                    verticalAlign: -2,
+                  }}
+                />{" "}
+                {appMeta.label}
               </span>
             </div>
           )}
           <div className={s.externalDetailRow}>
             <span className={s.externalDetailLabel}>路径</span>
-            <span className={s.externalDetailValue} style={{ fontSize: "0.72rem", wordBreak: "break-all" }}>{skill.path}</span>
+            <span
+              className={s.externalDetailValue}
+              style={{ fontSize: "0.72rem", wordBreak: "break-all" }}
+            >
+              {skill.path}
+            </span>
           </div>
           {skill.isSymlink && (
             <div className={s.externalDetailRow}>
               <span className={s.externalDetailLabel}>类型</span>
-              <span className={s.externalDetailValue}>符号链接{skill.symlinkTarget ? ` → ${skill.symlinkTarget}` : ""}</span>
+              <span className={s.externalDetailValue}>
+                符号链接{skill.symlinkTarget ? ` → ${skill.symlinkTarget}` : ""}
+              </span>
             </div>
           )}
         </div>
@@ -311,18 +361,24 @@ function DirectoryBrowser({
   const [error, setError] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState<string>("");
 
-  const loadDirectory = useCallback(async (subPath: string = "") => {
-    setLoading(true);
-    setError(null);
-    const result = await skillListDirectory({ skillId: skill.id, subPath: subPath || null });
-    if (result.ok) {
-      setListing(result.value);
-      setCurrentPath(result.value.currentPath);
-    } else {
-      setError(result.error);
-    }
-    setLoading(false);
-  }, [skill.id]);
+  const loadDirectory = useCallback(
+    async (subPath: string = "") => {
+      setLoading(true);
+      setError(null);
+      const result = await skillListDirectory({
+        skillId: skill.id,
+        subPath: subPath || null,
+      });
+      if (result.ok) {
+        setListing(result.value);
+        setCurrentPath(result.value.currentPath);
+      } else {
+        setError(result.error);
+      }
+      setLoading(false);
+    },
+    [skill.id]
+  );
 
   useEffect(() => {
     loadDirectory("");
@@ -389,7 +445,9 @@ function DirectoryBrowser({
               <ChevronRight size={12} className={s.pathSeparator} />
               <span
                 className={s.pathSegmentLink}
-                onClick={() => handlePathClick(pathSegments.slice(0, idx + 1).join("/"))}
+                onClick={() =>
+                  handlePathClick(pathSegments.slice(0, idx + 1).join("/"))
+                }
               >
                 {segment}
               </span>
@@ -415,7 +473,9 @@ function DirectoryBrowser({
               className={s.directoryEntry}
               onClick={() => handleEntryClick(entry)}
             >
-              <div className={`${s.entryIcon} ${entry.kind === "directory" ? s.entryIconDir : s.entryIconFile}`}>
+              <div
+                className={`${s.entryIcon} ${entry.kind === "directory" ? s.entryIconDir : s.entryIconFile}`}
+              >
                 {getFileIcon(entry)}
               </div>
               <div className={s.entryInfo}>
@@ -424,7 +484,9 @@ function DirectoryBrowser({
                   <div className={s.entryMeta}>{formatSize(entry.size)}</div>
                 )}
               </div>
-              {entry.kind === "directory" && <ChevronRight size={16} className={s.pathSeparator} />}
+              {entry.kind === "directory" && (
+                <ChevronRight size={16} className={s.pathSeparator} />
+              )}
             </div>
           ))
         )}
@@ -502,36 +564,52 @@ function DetailPanel({
 
   // Global app enable states — persisted per skillId in localStorage
   const globalStorageKey = `skill-global-${skill.id}`;
-  const [globalApps, setGlobalAppsRaw] = useState<Record<string, boolean>>(() => {
-    try {
-      const stored = localStorage.getItem(globalStorageKey);
-      if (stored) return JSON.parse(stored) as Record<string, boolean>;
-    } catch {}
-    return Object.fromEntries(APP_LIST.map((a) => [a.id, false]));
-  });
+  const [globalApps, setGlobalAppsRaw] = useState<Record<string, boolean>>(
+    () => {
+      try {
+        const stored = localStorage.getItem(globalStorageKey);
+        if (stored) return JSON.parse(stored) as Record<string, boolean>;
+      } catch {}
+      return Object.fromEntries(APP_LIST.map((a) => [a.id, false]));
+    }
+  );
 
-  const setGlobalApps = (updater: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => {
-    setGlobalAppsRaw(prev => {
+  const setGlobalApps = (
+    updater:
+      | Record<string, boolean>
+      | ((prev: Record<string, boolean>) => Record<string, boolean>)
+  ) => {
+    setGlobalAppsRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      try { localStorage.setItem(globalStorageKey, JSON.stringify(next)); } catch {}
+      try {
+        localStorage.setItem(globalStorageKey, JSON.stringify(next));
+      } catch {}
       return next;
     });
   };
 
   // Project-level enable states — persisted per skillId in localStorage
   const storageKey = `skill-projects-${skill.id}`;
-  const [projectEnables, setProjectEnablesRaw] = useState<ProjectEnableState[]>(() => {
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) return JSON.parse(stored) as ProjectEnableState[];
-    } catch {}
-    return [];
-  });
+  const [projectEnables, setProjectEnablesRaw] = useState<ProjectEnableState[]>(
+    () => {
+      try {
+        const stored = localStorage.getItem(storageKey);
+        if (stored) return JSON.parse(stored) as ProjectEnableState[];
+      } catch {}
+      return [];
+    }
+  );
 
-  const setProjectEnables = (updater: ProjectEnableState[] | ((prev: ProjectEnableState[]) => ProjectEnableState[])) => {
-    setProjectEnablesRaw(prev => {
+  const setProjectEnables = (
+    updater:
+      | ProjectEnableState[]
+      | ((prev: ProjectEnableState[]) => ProjectEnableState[])
+  ) => {
+    setProjectEnablesRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {}
       return next;
     });
   };
@@ -556,14 +634,15 @@ function DetailPanel({
     // Optimistically update UI
     setGlobalApps((prev) => ({ ...prev, [appId]: newState }));
 
-    const appLabel = APP_LIST.find(a => a.id === appId)?.label ?? appId;
+    const appLabel = APP_LIST.find((a) => a.id === appId)?.label ?? appId;
     const tid = newState
       ? toast.loading(`正在写入全局 ${appLabel}…`)
       : toast.loading(`正在移除全局 ${appLabel}…`);
 
     if (newState) {
       const result = await skillInstallGlobal({
-        skillId: skill.id, apps: [appId],
+        skillId: skill.id,
+        apps: [appId],
       });
       if (result.ok) {
         toast.resolve(tid, "success", `已将 Skill 写入全局 ${appLabel}`);
@@ -573,7 +652,8 @@ function DetailPanel({
       }
     } else {
       const result = await skillUninstallGlobal({
-        skillId: skill.id, apps: [appId],
+        skillId: skill.id,
+        apps: [appId],
       });
       if (result.ok) {
         toast.resolve(tid, "success", `已从全局 ${appLabel} 移除 Skill`);
@@ -592,36 +672,58 @@ function DetailPanel({
 
     // Optimistically update UI
     setProjectEnables((prev) =>
-      prev.map((p, i) => i !== projectIdx ? p : { ...p, apps: { ...p.apps, [appId]: newState } })
+      prev.map((p, i) =>
+        i !== projectIdx ? p : { ...p, apps: { ...p.apps, [appId]: newState } }
+      )
     );
 
-    const appLabel = APP_LIST.find(a => a.id === appId)?.label ?? appId;
+    const appLabel = APP_LIST.find((a) => a.id === appId)?.label ?? appId;
     const tid = newState
       ? toast.loading(`正在写入 ${appLabel}…`)
       : toast.loading(`正在移除 ${appLabel}…`);
 
     if (newState) {
       const result = await skillInstallToProject({
-        skillId: skill.id, projectPath: project.projectPath, apps: [appId],
+        skillId: skill.id,
+        projectPath: project.projectPath,
+        apps: [appId],
       });
       if (result.ok) {
-        toast.resolve(tid, "success", `已将 Skill 写入 ${project.projectName} / ${appLabel}`);
+        toast.resolve(
+          tid,
+          "success",
+          `已将 Skill 写入 ${project.projectName} / ${appLabel}`
+        );
       } else {
         toast.resolve(tid, "error", `写入失败：${result.error}`);
         setProjectEnables((prev) =>
-          prev.map((p, i) => i !== projectIdx ? p : { ...p, apps: { ...p.apps, [appId]: currentState } })
+          prev.map((p, i) =>
+            i !== projectIdx
+              ? p
+              : { ...p, apps: { ...p.apps, [appId]: currentState } }
+          )
         );
       }
     } else {
       const result = await skillUninstallFromProject({
-        skillId: skill.id, projectPath: project.projectPath, apps: [appId],
+        skillId: skill.id,
+        projectPath: project.projectPath,
+        apps: [appId],
       });
       if (result.ok) {
-        toast.resolve(tid, "success", `已从 ${project.projectName} / ${appLabel} 移除 Skill`);
+        toast.resolve(
+          tid,
+          "success",
+          `已从 ${project.projectName} / ${appLabel} 移除 Skill`
+        );
       } else {
         toast.resolve(tid, "error", `移除失败：${result.error}`);
         setProjectEnables((prev) =>
-          prev.map((p, i) => i !== projectIdx ? p : { ...p, apps: { ...p.apps, [appId]: currentState } })
+          prev.map((p, i) =>
+            i !== projectIdx
+              ? p
+              : { ...p, apps: { ...p.apps, [appId]: currentState } }
+          )
         );
       }
     }
@@ -631,12 +733,21 @@ function DetailPanel({
     const project = projectEnables[projectIdx];
     if (!project) return;
 
-    const tid = toast.loading(`正在清理 ${project.projectName} 中的 Skill 文件…`);
+    const tid = toast.loading(
+      `正在清理 ${project.projectName} 中的 Skill 文件…`
+    );
     const allApps = APP_LIST.map((a) => a.id);
-    const result = await projectRemoveCliFolders({ projectPath: project.projectPath, apps: allApps });
+    const result = await projectRemoveCliFolders({
+      projectPath: project.projectPath,
+      apps: allApps,
+    });
 
     if (result.ok) {
-      toast.resolve(tid, "success", `已清理 ${project.projectName} 中的 Skill 文件`);
+      toast.resolve(
+        tid,
+        "success",
+        `已清理 ${project.projectName} 中的 Skill 文件`
+      );
     } else {
       toast.resolve(tid, "error", `清理失败：${result.error}`);
     }
@@ -645,16 +756,23 @@ function DetailPanel({
 
   const addProjectEnable = async () => {
     try {
-      const selected = await open({ directory: true, multiple: false, title: "选择项目文件夹" });
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "选择项目文件夹",
+      });
       if (selected) {
         const path = selected as string;
         const folderName = path.split(/[/\\]/).pop() || "未命名项目";
-        setProjectEnables((prev) => [...prev, {
-          projectId: `project-${Date.now()}`,
-          projectName: folderName,
-          projectPath: path,
-          apps: Object.fromEntries(APP_LIST.map((a) => [a.id, false])),
-        }]);
+        setProjectEnables((prev) => [
+          ...prev,
+          {
+            projectId: `project-${Date.now()}`,
+            projectName: folderName,
+            projectPath: path,
+            apps: Object.fromEntries(APP_LIST.map((a) => [a.id, false])),
+          },
+        ]);
         toast.success(`已添加项目「${folderName}」`);
       }
     } catch (error) {
@@ -679,8 +797,12 @@ function DetailPanel({
             </div>
             <p className={s.detailDesc}>{skill.description || "无描述"}</p>
             <div className={s.detailMetaRow}>
-              <span><GitBranch size={12} /> {skill.slug}</span>
-              <span><Clock size={12} /> {formatDate(skill.updatedAt)}</span>
+              <span>
+                <GitBranch size={12} /> {skill.slug}
+              </span>
+              <span>
+                <Clock size={12} /> {formatDate(skill.updatedAt)}
+              </span>
             </div>
           </div>
           <div className={s.detailActions}>
@@ -775,8 +897,12 @@ function DetailPanel({
                   <div key={proj.projectId} className={s.projectItem}>
                     <div className={s.projectHeader}>
                       <div className={s.projectNameWrap}>
-                        <span className={s.projectName}>{proj.projectName}</span>
-                        <span className={s.projectPath}>{proj.projectPath}</span>
+                        <span className={s.projectName}>
+                          {proj.projectName}
+                        </span>
+                        <span className={s.projectPath}>
+                          {proj.projectPath}
+                        </span>
                       </div>
                       <IconButton
                         icon={<X size={14} />}
@@ -834,8 +960,8 @@ function DetailPanel({
         )}
 
         {/* ── 目录浏览 ── */}
-        {tab === "files" && (
-          previewingFile ? (
+        {tab === "files" &&
+          (previewingFile ? (
             <FilePreview
               skill={skill}
               filePath={previewingFile}
@@ -846,8 +972,7 @@ function DetailPanel({
               skill={skill}
               onOpenFile={(path) => setPreviewingFile(path)}
             />
-          )
-        )}
+          ))}
       </div>
     </div>
   );
@@ -875,18 +1000,26 @@ function LoadingSkeleton() {
 
 // ── Import Modal ────────────────────────────────────────────────────────────
 // ── Main InstalledPage ───────────────────────────────────────────────────────
-export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter }: {
+export function MyLibraryPage({
+  onNavigate,
+  activeLibraryTab,
+  externalAppFilter,
+}: {
   onNavigate: (page: import("../App").PageId) => void;
   activeLibraryTab: LibraryGroupTab;
   externalAppFilter: string | null;
 }) {
-  const { skills, externalSkills, loading, error, search, remove, refresh } = useSkills();
+  const { skills, externalSkills, loading, error, search, remove, refresh } =
+    useSkills();
   const toast = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(null);
+  const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(
+    null
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [importing, setImporting] = useState(false);
-  const [externalImportPreview, setExternalImportPreview] = useState<ExternalImportPreviewState | null>(null);
+  const [externalImportPreview, setExternalImportPreview] =
+    useState<ExternalImportPreviewState | null>(null);
   const [loadingExternalPreview, setLoadingExternalPreview] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -905,13 +1038,17 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
     };
   }, [searchQuery, search]);
 
-  const selectedSkill = activeLibraryTab === "external"
-    ? null
-    : skills.find((skill) => skill.id === selectedId) ?? null;
+  const selectedSkill =
+    activeLibraryTab === "external"
+      ? null
+      : (skills.find((skill) => skill.id === selectedId) ?? null);
 
-  const selectedExternal = activeLibraryTab === "external" && selectedExternalKey
-    ? externalSkills.find((sk) => `${sk.appId}:${sk.slug}` === selectedExternalKey) ?? null
-    : null;
+  const selectedExternal =
+    activeLibraryTab === "external" && selectedExternalKey
+      ? (externalSkills.find(
+          (sk) => `${sk.appId}:${sk.slug}` === selectedExternalKey
+        ) ?? null)
+      : null;
 
   const handleDelete = useCallback(async () => {
     if (selectedSkill) {
@@ -925,8 +1062,6 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
       }
     }
   }, [selectedSkill, remove, skills, toast]);
-
-
 
   // Export handler
   const handleExport = useCallback(async () => {
@@ -944,7 +1079,11 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
 
       const result = await skillExportToZip(selectedSkill.id, exportPath);
       if (result.ok) {
-        toast.resolve(tid, "success", `「${selectedSkill.name}」已导出到 ${result.value}`);
+        toast.resolve(
+          tid,
+          "success",
+          `「${selectedSkill.name}」已导出到 ${result.value}`
+        );
       } else {
         toast.resolve(tid, "error", result.error);
       }
@@ -985,58 +1124,73 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
   }, [importing, refresh, toast]);
 
   // Import external skill from app directory
-  const handleImportExternal = useCallback(async (skill: ExternalSkill) => {
-    setImporting(true);
-    const tid = toast.loading(`正在导入「${skill.name}」...`);
+  const handleImportExternal = useCallback(
+    async (skill: ExternalSkill) => {
+      setImporting(true);
+      const tid = toast.loading(`正在导入「${skill.name}」...`);
 
-    const result = await skillImportFromFolder(skill.path);
-    setImporting(false);
+      const result = await skillImportFromFolder(skill.path);
+      setImporting(false);
 
-    if (result.ok) {
-      toast.resolve(tid, "success", `「${result.value.name}」已导入 SkillSwitch`);
-      refresh();
-      setSelectedId(result.value.id);
-    } else {
-      toast.resolve(tid, "error", result.error);
-    }
-  }, [refresh, toast]);
+      if (result.ok) {
+        toast.resolve(
+          tid,
+          "success",
+          `「${result.value.name}」已导入 SkillSwitch`
+        );
+        refresh();
+        setSelectedId(result.value.id);
+      } else {
+        toast.resolve(tid, "error", result.error);
+      }
+    },
+    [refresh, toast]
+  );
 
-  const handlePreviewExternalImport = useCallback(async (skill: ExternalSkill) => {
-    setLoadingExternalPreview(true);
-    try {
-      const entries = await readDir(skill.path);
-      const previewEntries = entries
-        .filter((entry) => !!entry.name && !entry.name.startsWith("."))
-        .map((entry) => ({
-          name: entry.name,
-          kind: entry.isDirectory ? "directory" as const : "file" as const,
-          isSymlink: entry.isSymlink,
-        }))
-        .sort((left, right) => {
-          if (left.kind !== right.kind) {
-            return left.kind === "directory" ? -1 : 1;
-          }
-          return left.name.localeCompare(right.name, "zh-CN");
+  const handlePreviewExternalImport = useCallback(
+    async (skill: ExternalSkill) => {
+      setLoadingExternalPreview(true);
+      try {
+        const entries = await readDir(skill.path);
+        const previewEntries = entries
+          .filter((entry) => !!entry.name && !entry.name.startsWith("."))
+          .map((entry) => ({
+            name: entry.name,
+            kind: entry.isDirectory
+              ? ("directory" as const)
+              : ("file" as const),
+            isSymlink: entry.isSymlink,
+          }))
+          .sort((left, right) => {
+            if (left.kind !== right.kind) {
+              return left.kind === "directory" ? -1 : 1;
+            }
+            return left.name.localeCompare(right.name, "zh-CN");
+          });
+
+        setExternalImportPreview({
+          skill,
+          entries: previewEntries,
+          duplicateSkill:
+            skills.find((managedSkill) => managedSkill.slug === skill.slug) ??
+            null,
         });
-
-      setExternalImportPreview({
-        skill,
-        entries: previewEntries,
-        duplicateSkill: skills.find((managedSkill) => managedSkill.slug === skill.slug) ?? null,
-      });
-    } catch (error) {
-      toast.error(`读取导入预览失败：${String(error)}`);
-    } finally {
-      setLoadingExternalPreview(false);
-    }
-  }, [skills, toast]);
+      } catch (error) {
+        toast.error(`读取导入预览失败：${String(error)}`);
+      } finally {
+        setLoadingExternalPreview(false);
+      }
+    },
+    [skills, toast]
+  );
 
   // Separate self-created and external skills
   const filteredSkills = searchQuery.trim()
     ? skills.filter(
         (s) =>
           s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (s.description?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
+          (s.description?.toLowerCase().includes(searchQuery.toLowerCase()) ??
+            false)
       )
     : skills;
 
@@ -1050,15 +1204,15 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
     ? appFilteredExternal.filter((skill) => {
         const query = searchQuery.toLowerCase();
         const appLabel = getAppMeta(skill.appId)?.label.toLowerCase() ?? "";
-        return skill.name.toLowerCase().includes(query)
-          || skill.slug.toLowerCase().includes(query)
-          || (skill.description?.toLowerCase().includes(query) ?? false)
-          || appLabel.includes(query);
+        return (
+          skill.name.toLowerCase().includes(query) ||
+          skill.slug.toLowerCase().includes(query) ||
+          (skill.description?.toLowerCase().includes(query) ?? false) ||
+          appLabel.includes(query)
+        );
       })
     : appFilteredExternal;
-  const activeManagedSkills = activeLibraryTab === "self-created"
-    ? skills
-    : [];
+  const activeManagedSkills = activeLibraryTab === "self-created" ? skills : [];
 
   useEffect(() => {
     if (activeLibraryTab === "external") return;
@@ -1070,7 +1224,9 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
       return;
     }
 
-    const selectedStillVisible = activeManagedSkills.some((skill) => skill.id === selectedId);
+    const selectedStillVisible = activeManagedSkills.some(
+      (skill) => skill.id === selectedId
+    );
     if (!selectedStillVisible) {
       setSelectedId(activeManagedSkills[0].id);
     }
@@ -1096,24 +1252,36 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
     );
 
     if (!selectedStillVisible) {
-      setSelectedExternalKey(`${filteredExternal[0].appId}:${filteredExternal[0].slug}`);
+      setSelectedExternalKey(
+        `${filteredExternal[0].appId}:${filteredExternal[0].slug}`
+      );
     }
-  }, [activeLibraryTab, externalAppFilter, filteredExternal, selectedExternalKey]);
+  }, [
+    activeLibraryTab,
+    externalAppFilter,
+    filteredExternal,
+    selectedExternalKey,
+  ]);
 
-  const handleSelectManagedSkill = useCallback((skillId: string) => {
-    if (skillId === selectedId) {
-      return;
-    }
+  const handleSelectManagedSkill = useCallback(
+    (skillId: string) => {
+      if (skillId === selectedId) {
+        return;
+      }
 
-    setSelectedId(skillId);
-  }, [selectedId]);
+      setSelectedId(skillId);
+    },
+    [selectedId]
+  );
 
   const renderActiveTabContent = () => {
     if (activeLibraryTab === "self-created") {
       if (filteredSelfCreated.length === 0) {
         return (
           <div className={s.empty}>
-            {searchQuery ? "自建 Skills 中未找到匹配项" : "还没有自建 Skill，点击「创建」试试"}
+            {searchQuery
+              ? "自建 Skills 中未找到匹配项"
+              : "还没有自建 Skill，点击「创建」试试"}
           </div>
         );
       }
@@ -1139,7 +1307,9 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
     if (filteredExternal.length === 0) {
       return (
         <div className={s.empty}>
-          {searchQuery ? "外部 Skills 中未找到匹配项" : "还没有发现可导入的外部 Skills"}
+          {searchQuery
+            ? "外部 Skills 中未找到匹配项"
+            : "还没有发现可导入的外部 Skills"}
         </div>
       );
     }
@@ -1164,10 +1334,13 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
       <header className={s.header}>
         <div className={s.headerLeft}>
           <h1 className={s.headerTitle}>
-            {activeLibraryTab === "self-created" ? "自建 Skills" : "外部 Skills"}
+            {activeLibraryTab === "self-created"
+              ? "自建 Skills"
+              : "外部 Skills"}
           </h1>
           <span className={s.headerSub}>
-            {activeLibraryTab === "self-created" && `${filteredSelfCreated.length} 个`}
+            {activeLibraryTab === "self-created" &&
+              `${filteredSelfCreated.length} 个`}
             {activeLibraryTab === "external" && `${filteredExternal.length} 个`}
           </span>
         </div>
@@ -1181,8 +1354,18 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
               placeholder="搜索 Skills..."
             />
           </div>
-          <button className={s.importBtn} onClick={() => void handleImport()} disabled={importing}>
-            {importing ? <><Loader size={12} className={s.btnSpin} /> 导入中</> : "导入"}
+          <button
+            className={s.importBtn}
+            onClick={() => void handleImport()}
+            disabled={importing}
+          >
+            {importing ? (
+              <>
+                <Loader size={12} className={s.btnSpin} /> 导入中
+              </>
+            ) : (
+              "导入"
+            )}
           </button>
           <button className={s.createBtn} onClick={() => onNavigate("create")}>
             <Plus size={14} /> 创建 Skill
@@ -1193,7 +1376,9 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
       {/* ── Error Banner ── */}
       {error && (
         <div className={s.errorBanner}>
-          <span><AlertTriangle size={14} /> {error}</span>
+          <span>
+            <AlertTriangle size={14} /> {error}
+          </span>
           <button onClick={() => window.location.reload()}>重试</button>
         </div>
       )}
@@ -1205,9 +1390,7 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
           <LoadingSkeleton />
         ) : (
           <div className={s.list}>
-            <div className={s.groupTabPanel}>
-              {renderActiveTabContent()}
-            </div>
+            <div className={s.groupTabPanel}>{renderActiveTabContent()}</div>
           </div>
         )}
 
@@ -1220,24 +1403,29 @@ export function MyLibraryPage({ onNavigate, activeLibraryTab, externalAppFilter 
             onExport={handleExport}
           />
         )}
-        {!selectedSkill && activeLibraryTab === "external" && selectedExternal && (
-          <ExternalDetailPanel
-            key={`${selectedExternal.appId}:${selectedExternal.slug}`}
-            skill={selectedExternal}
-            onImport={() => handlePreviewExternalImport(selectedExternal)}
-          />
-        )}
-        {!selectedSkill && activeLibraryTab === "external" && !selectedExternal && (
-          <div className={s.detailPlaceholder}>
-            <div className={s.detailPlaceholderIcon}>
-              <ExternalLink size={18} />
+        {!selectedSkill &&
+          activeLibraryTab === "external" &&
+          selectedExternal && (
+            <ExternalDetailPanel
+              key={`${selectedExternal.appId}:${selectedExternal.slug}`}
+              skill={selectedExternal}
+              onImport={() => handlePreviewExternalImport(selectedExternal)}
+            />
+          )}
+        {!selectedSkill &&
+          activeLibraryTab === "external" &&
+          !selectedExternal && (
+            <div className={s.detailPlaceholder}>
+              <div className={s.detailPlaceholderIcon}>
+                <ExternalLink size={18} />
+              </div>
+              <div className={s.detailPlaceholderTitle}>外部 Skills</div>
+              <div className={s.detailPlaceholderHint}>
+                从左侧二级列表选择一个 CLI 来源，再查看并导入该目录下发现的外部
+                Skill。
+              </div>
             </div>
-            <div className={s.detailPlaceholderTitle}>外部 Skills</div>
-            <div className={s.detailPlaceholderHint}>
-              从左侧二级列表选择一个 CLI 来源，再查看并导入该目录下发现的外部 Skill。
-            </div>
-          </div>
-        )}
+          )}
       </div>
       {externalImportPreview && (
         <ExternalImportPreviewModal
@@ -1272,7 +1460,10 @@ function ExternalImportPreviewModal({
 
   return (
     <div className={modalStyles.modalOverlay} onClick={onClose}>
-      <div className={`${modalStyles.modal} ${s.externalPreviewModal}`} onClick={(event) => event.stopPropagation()}>
+      <div
+        className={`${modalStyles.modal} ${s.externalPreviewModal}`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className={modalStyles.modalHeader}>
           <span className={modalStyles.modalTitle}>导入前预览</span>
           <button className={modalStyles.modalClose} onClick={onClose}>
@@ -1283,7 +1474,9 @@ function ExternalImportPreviewModal({
           <div className={s.externalPreviewMeta}>
             <div className={s.externalPreviewRow}>
               <span className={s.externalPreviewLabel}>Skill</span>
-              <span className={s.externalPreviewValue}>{preview.skill.name} · {preview.skill.slug}</span>
+              <span className={s.externalPreviewValue}>
+                {preview.skill.name} · {preview.skill.slug}
+              </span>
             </div>
             {appMeta && (
               <div className={s.externalPreviewRow}>
@@ -1293,12 +1486,18 @@ function ExternalImportPreviewModal({
             )}
             <div className={s.externalPreviewRow}>
               <span className={s.externalPreviewLabel}>路径</span>
-              <span className={`${s.externalPreviewValue} ${s.externalPreviewPath}`}>{preview.skill.path}</span>
+              <span
+                className={`${s.externalPreviewValue} ${s.externalPreviewPath}`}
+              >
+                {preview.skill.path}
+              </span>
             </div>
             <div className={s.externalPreviewRow}>
               <span className={s.externalPreviewLabel}>符号链接</span>
               <span className={s.externalPreviewValue}>
-                {preview.skill.isSymlink ? `是${preview.skill.symlinkTarget ? ` → ${preview.skill.symlinkTarget}` : ""}` : "否"}
+                {preview.skill.isSymlink
+                  ? `是${preview.skill.symlinkTarget ? ` → ${preview.skill.symlinkTarget}` : ""}`
+                  : "否"}
               </span>
             </div>
           </div>
@@ -1306,35 +1505,67 @@ function ExternalImportPreviewModal({
           {preview.duplicateSkill && (
             <div className={s.externalPreviewWarning}>
               <AlertTriangle size={14} />
-              <span>当前库中已存在同 slug 的 Skill：{preview.duplicateSkill.name}。继续导入可能失败或需要重命名。</span>
+              <span>
+                当前库中已存在同 slug 的 Skill：{preview.duplicateSkill.name}
+                。继续导入可能失败或需要重命名。
+              </span>
             </div>
           )}
 
           <div className={s.externalPreviewSection}>
-            <div className={s.externalPreviewSectionTitle}>即将导入的顶层文件</div>
+            <div className={s.externalPreviewSectionTitle}>
+              即将导入的顶层文件
+            </div>
             {loading ? (
               <div className={s.externalPreviewEmpty}>正在读取目录...</div>
             ) : preview.entries.length > 0 ? (
               <div className={s.externalPreviewList}>
                 {preview.entries.map((entry) => (
                   <div key={entry.name} className={s.externalPreviewEntry}>
-                    {entry.kind === "directory" ? <Folder size={13} /> : <File size={13} />}
-                    <span className={s.externalPreviewEntryName}>{entry.name}</span>
+                    {entry.kind === "directory" ? (
+                      <Folder size={13} />
+                    ) : (
+                      <File size={13} />
+                    )}
+                    <span className={s.externalPreviewEntryName}>
+                      {entry.name}
+                    </span>
                     <span className={s.externalPreviewEntryMeta}>
-                      {entry.kind === "directory" ? "目录" : "文件"}{entry.isSymlink ? " · 符号链接" : ""}
+                      {entry.kind === "directory" ? "目录" : "文件"}
+                      {entry.isSymlink ? " · 符号链接" : ""}
                     </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className={s.externalPreviewEmpty}>目录为空或没有可展示的文件。</div>
+              <div className={s.externalPreviewEmpty}>
+                目录为空或没有可展示的文件。
+              </div>
             )}
           </div>
 
           <div className={s.externalPreviewActions}>
-            <button className={s.previewCancelBtn} onClick={onClose} disabled={importing}>取消</button>
-            <button className={s.previewConfirmBtn} onClick={() => void onConfirm()} disabled={importing || loading}>
-              {importing ? <><Loader size={14} className={s.btnSpin} /> 导入中...</> : <><Download size={14} /> 确认导入</>}
+            <button
+              className={s.previewCancelBtn}
+              onClick={onClose}
+              disabled={importing}
+            >
+              取消
+            </button>
+            <button
+              className={s.previewConfirmBtn}
+              onClick={() => void onConfirm()}
+              disabled={importing || loading}
+            >
+              {importing ? (
+                <>
+                  <Loader size={14} className={s.btnSpin} /> 导入中...
+                </>
+              ) : (
+                <>
+                  <Download size={14} /> 确认导入
+                </>
+              )}
             </button>
           </div>
         </div>
