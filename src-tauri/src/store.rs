@@ -617,7 +617,9 @@ fn reconcile_managed_skills_from_backup_clone(clone_dir: &Path) -> Result<bool, 
     let removed_ids: Vec<String> = library
         .resources
         .iter()
-        .filter(|resource| is_managed_skill_resource(resource) && !seen_slugs.contains(&resource.slug))
+        .filter(|resource| {
+            is_managed_skill_resource(resource) && !seen_slugs.contains(&resource.slug)
+        })
         .map(|resource| resource.id.clone())
         .collect();
 
@@ -4314,6 +4316,18 @@ pub fn scan_external_app_skills(
     Ok(skills)
 }
 
+/// Read the SKILL.md content from an external skill directory
+pub fn read_external_skill_content(path: &str) -> Result<String, String> {
+    let skill_path = PathBuf::from(path);
+    let skill_file = skill_path.join("SKILL.md");
+
+    if !skill_file.exists() {
+        return Err("SKILL.md 文件不存在".to_string());
+    }
+
+    fs::read_to_string(&skill_file).map_err(|e| format!("读取 SKILL.md 失败：{}", e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4470,7 +4484,11 @@ mod tests {
         assert!(changed, "reconcile should detect backup-driven changes");
 
         let next_library = load_repo_library(&root).expect("library should reload");
-        assert_eq!(next_library.resources.len(), 1, "stale resource should be removed");
+        assert_eq!(
+            next_library.resources.len(),
+            1,
+            "stale resource should be removed"
+        );
 
         let resource = next_library
             .resources

@@ -306,6 +306,16 @@ export async function scanExternalSkills(
 }
 
 /**
+ * Read the SKILL.md content from an external skill directory
+ * Maps to backend: read_external_skill_content(path) -> String
+ */
+export async function readExternalSkillContent(
+  path: string
+): Promise<Result<string>> {
+  return tauriInvoke<string>("read_external_skill_content", { path });
+}
+
+/**
  * Open a skill's SKILL.md file with Typora
  * Maps to backend: open_with_typora(skill_id) -> ()
  */

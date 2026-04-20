@@ -574,6 +574,11 @@ pub fn scan_external_skills(
     store::scan_external_app_skills(&app, &app_id)
 }
 
+#[tauri::command]
+pub fn read_external_skill_content(path: String) -> Result<String, String> {
+    store::read_external_skill_content(&path)
+}
+
 // ─── Marketplace commands ─────────────────────────────────────────────────────
 
 #[tauri::command]

@@ -40,6 +40,7 @@ import {
   skillShowInFinder,
   openWithTypora,
   showInFinder,
+  readExternalSkillContent,
 } from "../services/skill";
 import { IconButton } from "../components/ui/IconButton";
 import type {
@@ -222,6 +223,27 @@ function ExternalDetailPanel({
   const iconColors = getIconColors(skill.name);
   const initial = skill.name.charAt(0).toUpperCase();
   const appMeta = getAppMeta(skill.appId);
+  const [content, setContent] = useState<string | null>(null);
+  const [contentLoading, setContentLoading] = useState(true);
+  const [contentError, setContentError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setContentLoading(true);
+    setContentError(null);
+    readExternalSkillContent(skill.path)
+      .then((result) => {
+        if (result.ok) {
+          setContent(result.value);
+        } else {
+          setContentError(result.error);
+        }
+        setContentLoading(false);
+      })
+      .catch((err) => {
+        setContentError(String(err));
+        setContentLoading(false);
+      });
+  }, [skill.path]);
 
   return (
     <aside className={s.detail}>
@@ -292,6 +314,31 @@ function ExternalDetailPanel({
             <p>{skill.description}</p>
           </div>
         )}
+
+        {/* SKILL.md content preview */}
+        <div className={s.externalDetailContentSection}>
+          <div className={s.externalDetailContentHeader}>
+            <FileText size={14} />
+            <span>SKILL.md 内容预览</span>
+          </div>
+          <div className={s.externalDetailContentBody}>
+            {contentLoading ? (
+              <div className={s.externalDetailContentLoading}>
+                <Loader size={16} className={s.btnSpin} />
+                <span>加载中...</span>
+              </div>
+            ) : contentError ? (
+              <div className={s.externalDetailContentError}>
+                <AlertTriangle size={16} />
+                <span>{contentError}</span>
+              </div>
+            ) : content ? (
+              <pre className={s.externalDetailContentCode}>{content}</pre>
+            ) : (
+              <div className={s.externalDetailContentEmpty}>无内容</div>
+            )}
+          </div>
+        </div>
 
         {/* Import action */}
         <button className={s.externalDetailImportBtn} onClick={onImport}>
