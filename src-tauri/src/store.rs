@@ -993,6 +993,63 @@ pub fn update_legacy_skill(
     Ok(result)
 }
 
+pub fn sync_legacy_skill_from_source(
+    app: &tauri::AppHandle,
+    skill_id: &str,
+) -> Result<LegacySkillDto, String> {
+    let repo_root = connected_repo_root(app)?;
+    let mut library = load_repo_library_for_legacy_skills(app, &repo_root)?;
+    let resource_index = library
+        .resources
+        .iter()
+        .position(|resource| resource.kind == ResourceKind::Skill && resource.id == skill_id)
+        .ok_or_else(|| format!("skill {} not found", skill_id))?;
+
+    // Use skill_source_dir_by_id which handles RepoSource skills correctly
+    let skill_dir = skill_source_dir_by_id(app, skill_id)?;
+    let skill_file = skill_dir.join("SKILL.md");
+    if !skill_file.exists() {
+        return Err("SKILL.md 文件不存在".to_string());
+    }
+
+    let content =
+        fs::read_to_string(&skill_file).map_err(|e| format!("读取 SKILL.md 失败：{}", e))?;
+    let changed = {
+        let resource = &mut library.resources[resource_index];
+        let (name, description, tags) =
+            derive_skill_source_metadata(&resource.slug, &content, Some(resource.tags.as_slice()));
+        let revision = compute_revision(&content);
+        let changed = resource.title != name
+            || resource.description != description
+            || resource.content != content
+            || resource.tags != tags
+            || resource.revision != revision;
+
+        if changed {
+            resource.title = name;
+            resource.description = description;
+            resource.content = content;
+            resource.tags = tags;
+            resource.revision = revision;
+            resource.updated_at = now_ms();
+        }
+
+        changed
+    };
+
+    if changed {
+        save_repo_library(&repo_root, &library)?;
+        let resource_name = library.resources[resource_index].title.clone();
+        let _backup_sync =
+            sync_after_mutation(app, &format!("Update skill from source: {}", resource_name));
+    }
+
+    Ok(resource_to_legacy_skill(
+        &library.resources[resource_index],
+        &library,
+    ))
+}
+
 pub fn delete_legacy_skill(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
     let repo_root = connected_repo_root(app)?;
     let mut library = load_repo_library_for_legacy_skills(app, &repo_root)?;
@@ -3129,6 +3186,8 @@ fn skill_source_dir(app: &tauri::AppHandle, slug: &str) -> Result<PathBuf, Strin
 }
 
 /// Get the source directory for a skill by its ID (public, for commands layer)
+/// For RepoSource skills, returns the managed source directory (repo-sources/<repo_id>/<skill_path_parent>)
+/// For other skills, returns the skill-sources directory
 pub fn skill_source_dir_by_id(app: &tauri::AppHandle, skill_id: &str) -> Result<PathBuf, String> {
     let repo_root = connected_repo_root(app)?;
     let library = load_repo_library(&repo_root)?;
@@ -3137,6 +3196,31 @@ pub fn skill_source_dir_by_id(app: &tauri::AppHandle, skill_id: &str) -> Result<
         .iter()
         .find(|r| r.id == skill_id && r.kind == ResourceKind::Skill)
         .ok_or_else(|| format!("skill {} not found", skill_id))?;
+
+    // For RepoSource provenance, return the managed source directory
+    if resource.provenance.kind == ProvenanceKind::RepoSource {
+        let source_id = resource
+            .provenance
+            .source_id
+            .as_ref()
+            .ok_or_else(|| "RepoSource skill missing source_id".to_string())?;
+        let source_path = resource
+            .provenance
+            .source_path
+            .as_ref()
+            .ok_or_else(|| "RepoSource skill missing source_path".to_string())?;
+
+        // source_path is the SKILL.md file path, we need its parent directory
+        let repo_local_path = crate::repo_sources::repo_local_path(app, source_id)?;
+        let skill_md_path = repo_local_path.join(source_path);
+        let skill_dir = skill_md_path
+            .parent()
+            .ok_or_else(|| "Cannot get parent directory of SKILL.md path".to_string())?;
+
+        return Ok(skill_dir.to_path_buf());
+    }
+
+    // For other skills, return the skill-sources directory
     skill_source_dir(app, &resource.slug)
 }
 

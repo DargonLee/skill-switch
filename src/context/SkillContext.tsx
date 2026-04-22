@@ -1,6 +1,21 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
+} from "react";
 import type { Skill, ExternalSkill, CreateSkillResult } from "../types";
-import { skillList, skillSearch, skillCreate, skillUpdate, skillDelete, scanExternalSkills } from "../services/skill";
+import {
+  skillList,
+  skillSearch,
+  skillCreate,
+  skillUpdate,
+  skillDelete,
+  scanExternalSkills,
+  skillSyncFromSource,
+} from "../services/skill";
 import type { CreateSkillInput, UpdateSkillInput } from "../types";
 import { APP_LIST } from "./AppContext";
 import type { Result } from "../services/tauri";
@@ -14,6 +29,7 @@ interface SkillContextValue {
   search: (query: string) => Promise<void>;
   create: (input: CreateSkillInput) => Promise<Result<CreateSkillResult>>;
   update: (input: UpdateSkillInput) => Promise<Result<Skill>>;
+  syncFromSource: (id: string) => Promise<Result<Skill>>;
   remove: (id: string) => Promise<boolean>;
 }
 
@@ -59,45 +75,65 @@ export function SkillProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   // Search skills
-  const search = useCallback(async (query: string) => {
-    if (!query.trim()) {
-      refresh();
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    const result = await skillSearch(query);
-    if (result.ok) {
-      setSkills(result.value);
-    } else {
-      setError(result.error);
-    }
-    setLoading(false);
-  }, [refresh]);
+  const search = useCallback(
+    async (query: string) => {
+      if (!query.trim()) {
+        refresh();
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      const result = await skillSearch(query);
+      if (result.ok) {
+        setSkills(result.value);
+      } else {
+        setError(result.error);
+      }
+      setLoading(false);
+    },
+    [refresh]
+  );
 
   // Create skill
-  const create = useCallback(async (input: CreateSkillInput): Promise<Result<CreateSkillResult>> => {
-    const result = await skillCreate(input);
-    if (result.ok) {
-      setSkills((prev) => [...prev, result.value.skill]);
+  const create = useCallback(
+    async (input: CreateSkillInput): Promise<Result<CreateSkillResult>> => {
+      const result = await skillCreate(input);
+      if (result.ok) {
+        setSkills((prev) => [...prev, result.value.skill]);
+        return result;
+      }
+      setError(result.error);
       return result;
-    }
-    setError(result.error);
-    return result;
-  }, []);
+    },
+    []
+  );
 
   // Update skill
-  const update = useCallback(async (input: UpdateSkillInput): Promise<Result<Skill>> => {
-    const result = await skillUpdate(input);
-    if (result.ok) {
-      setSkills((prev) =>
-        prev.map((s) => (s.id === input.id ? result.value : s))
-      );
+  const update = useCallback(
+    async (input: UpdateSkillInput): Promise<Result<Skill>> => {
+      const result = await skillUpdate(input);
+      if (result.ok) {
+        setSkills((prev) =>
+          prev.map((s) => (s.id === input.id ? result.value : s))
+        );
+        return result;
+      }
+      setError(result.error);
       return result;
-    }
-    setError(result.error);
-    return result;
-  }, []);
+    },
+    []
+  );
+
+  const syncFromSource = useCallback(
+    async (id: string): Promise<Result<Skill>> => {
+      const result = await skillSyncFromSource(id);
+      if (result.ok) {
+        setSkills((prev) => prev.map((s) => (s.id === id ? result.value : s)));
+      }
+      return result;
+    },
+    []
+  );
 
   // Delete skill
   const remove = useCallback(async (id: string): Promise<boolean> => {
@@ -112,7 +148,18 @@ export function SkillProvider({ children }: { children: ReactNode }) {
 
   return (
     <SkillContext.Provider
-      value={{ skills, externalSkills, loading, error, refresh, search, create, update, remove }}
+      value={{
+        skills,
+        externalSkills,
+        loading,
+        error,
+        refresh,
+        search,
+        create,
+        update,
+        syncFromSource,
+        remove,
+      }}
     >
       {children}
     </SkillContext.Provider>

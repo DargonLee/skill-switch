@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readDir } from "@tauri-apps/plugin-fs";
+import { readDir, watch } from "@tauri-apps/plugin-fs";
 import {
   X,
   Search,
@@ -38,6 +38,7 @@ import {
   skillListDirectory,
   skillReadFile,
   skillShowInFinder,
+  skillGetSourceDirPath,
   openWithTypora,
   showInFinder,
   readExternalSkillContent,
@@ -53,6 +54,8 @@ import type {
 } from "../types";
 import modalStyles from "../components/layout/AppShell.module.css";
 import s from "./MyLibraryPage.module.css";
+
+const SKILL_MD_PATH_RE = /(?:^|[\\/])SKILL\.md$/i;
 
 // Generate icon colors based on skill name
 function getIconColors(name: string): { bg: string; fg: string } {
@@ -1056,8 +1059,16 @@ export function MyLibraryPage({
   activeLibraryTab: LibraryGroupTab;
   externalAppFilter: string | null;
 }) {
-  const { skills, externalSkills, loading, error, search, remove, refresh } =
-    useSkills();
+  const {
+    skills,
+    externalSkills,
+    loading,
+    error,
+    search,
+    remove,
+    refresh,
+    syncFromSource,
+  } = useSkills();
   const toast = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(
@@ -1069,6 +1080,12 @@ export function MyLibraryPage({
     useState<ExternalImportPreviewState | null>(null);
   const [loadingExternalPreview, setLoadingExternalPreview] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchQueryRef = useRef(searchQuery);
+  const sourceSyncInFlightRef = useRef(false);
+
+  useEffect(() => {
+    searchQueryRef.current = searchQuery;
+  }, [searchQuery]);
 
   // Debounced search (300ms)
   useEffect(() => {
@@ -1089,6 +1106,7 @@ export function MyLibraryPage({
     activeLibraryTab === "external"
       ? null
       : (skills.find((skill) => skill.id === selectedId) ?? null);
+  const selectedSkillId = selectedSkill?.id ?? null;
 
   const selectedExternal =
     activeLibraryTab === "external" && selectedExternalKey
@@ -1259,9 +1277,10 @@ export function MyLibraryPage({
         );
       })
     : appFilteredExternal;
-  const activeManagedSkills = activeLibraryTab === "self-created" ? skills : [];
 
   useEffect(() => {
+    const activeManagedSkills = activeLibraryTab === "self-created" ? skills : [];
+
     if (activeLibraryTab === "external") return;
 
     if (activeManagedSkills.length === 0) {
@@ -1277,7 +1296,7 @@ export function MyLibraryPage({
     if (!selectedStillVisible) {
       setSelectedId(activeManagedSkills[0].id);
     }
-  }, [activeLibraryTab, activeManagedSkills, selectedId]);
+  }, [activeLibraryTab, selectedId, skills]);
 
   useEffect(() => {
     if (activeLibraryTab !== "external" || !externalAppFilter) {
@@ -1309,6 +1328,77 @@ export function MyLibraryPage({
     filteredExternal,
     selectedExternalKey,
   ]);
+
+  useEffect(() => {
+    if (activeLibraryTab !== "self-created" || !selectedSkillId) {
+      return;
+    }
+
+    let disposed = false;
+    let unwatch: (() => void) | undefined;
+
+    const syncSelectedSkill = async () => {
+      if (sourceSyncInFlightRef.current) {
+        return;
+      }
+
+      sourceSyncInFlightRef.current = true;
+      const result = await syncFromSource(selectedSkillId);
+      sourceSyncInFlightRef.current = false;
+
+      if (disposed) {
+        return;
+      }
+
+      if (!result.ok) {
+        if (!result.error.includes("SKILL.md 文件不存在")) {
+          toast.error(`同步 SKILL.md 失败：${result.error}`);
+        }
+        return;
+      }
+
+      const currentQuery = searchQueryRef.current.trim();
+      if (currentQuery) {
+        void search(currentQuery);
+      }
+    };
+
+    void (async () => {
+      const sourceDirResult = await skillGetSourceDirPath(selectedSkillId);
+      if (disposed) {
+        return;
+      }
+
+      if (!sourceDirResult.ok) {
+        console.warn(
+          "Failed to resolve skill source directory:",
+          sourceDirResult.error
+        );
+        return;
+      }
+
+      try {
+        unwatch = await watch(
+          sourceDirResult.value,
+          (event) => {
+            if (!event.paths.some((path) => SKILL_MD_PATH_RE.test(path))) {
+              return;
+            }
+            void syncSelectedSkill();
+          },
+          { recursive: false, delayMs: 400 }
+        );
+      } catch (error) {
+        console.error("Failed to watch skill source directory:", error);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      sourceSyncInFlightRef.current = false;
+      unwatch?.();
+    };
+  }, [activeLibraryTab, search, selectedSkillId, syncFromSource, toast]);
 
   const handleSelectManagedSkill = useCallback(
     (skillId: string) => {

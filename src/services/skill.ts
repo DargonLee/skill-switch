@@ -316,9 +316,29 @@ export async function readExternalSkillContent(
 }
 
 /**
+ * Get the managed source directory path for a skill
+ * Maps to backend: skill_source_dir_path(skill_id) -> String
+ */
+export async function skillGetSourceDirPath(
+  skillId: string
+): Promise<Result<string>> {
+  return tauriInvoke<string>("skill_source_dir_path", { skillId });
+}
+
+/**
  * Open a skill's SKILL.md file with Typora
  * Maps to backend: open_with_typora(skill_id) -> ()
  */
 export async function openWithTypora(skillId: string): Promise<Result<void>> {
   return tauriInvoke<void>("open_with_typora", { skillId });
+}
+
+/**
+ * Sync a skill's managed metadata from its source SKILL.md file
+ * Maps to backend: skill_sync_from_source(skill_id) -> LegacySkillDto
+ */
+export async function skillSyncFromSource(
+  skillId: string
+): Promise<Result<Skill>> {
+  return tauriInvoke<Skill>("skill_sync_from_source", { skillId });
 }

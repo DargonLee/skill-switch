@@ -24,7 +24,8 @@ use commands::{
     skill_import_from_folder, skill_import_from_market, skill_import_from_repo_source,
     skill_import_from_zip, skill_install_global, skill_install_to_project, skill_list,
     skill_list_directory, skill_read_file, skill_repair_broken_symlinks, skill_search,
-    skill_show_in_finder, skill_uninstall_from_project, skill_uninstall_global, skill_update,
+    skill_show_in_finder, skill_source_dir_path, skill_sync_from_source,
+    skill_uninstall_from_project, skill_uninstall_global, skill_update,
 };
 use updater::{check_app_update, download_and_install_update, get_current_version};
 
@@ -119,6 +120,8 @@ pub fn run() {
             marketplace_load_feed,
             skill_import_from_market,
             open_with_typora,
+            skill_source_dir_path,
+            skill_sync_from_source,
             registry_search,
             registry_fetch_content,
             registry_install,

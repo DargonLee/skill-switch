@@ -16,7 +16,7 @@ fn repo_sources_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map(|path| path.join(REPO_SOURCES_DIR))
 }
 
-fn repo_local_path(app: &tauri::AppHandle, repo_id: &str) -> Result<PathBuf, String> {
+pub fn repo_local_path(app: &tauri::AppHandle, repo_id: &str) -> Result<PathBuf, String> {
     repo_sources_dir(app).map(|path| path.join(repo_id))
 }
 

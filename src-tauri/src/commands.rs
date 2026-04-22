@@ -377,6 +377,24 @@ pub fn open_with_typora(app: tauri::AppHandle, skill_id: String) -> Result<(), S
     Ok(())
 }
 
+#[tauri::command]
+pub fn skill_source_dir_path(app: tauri::AppHandle, skill_id: String) -> Result<String, String> {
+    let skill_dir = store::skill_source_dir_by_id(&app, &skill_id)?;
+    if !skill_dir.join("SKILL.md").exists() {
+        return Err("SKILL.md 文件不存在".to_string());
+    }
+
+    Ok(skill_dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn skill_sync_from_source(
+    app: tauri::AppHandle,
+    skill_id: String,
+) -> Result<crate::domain::LegacySkillDto, String> {
+    run_blocking_command(move || store::sync_legacy_skill_from_source(&app, &skill_id)).await
+}
+
 fn open_in_system_file_manager(target_path: &Path) -> Result<(), String> {
     // Use system `open -R` command which is more stable than showfile crate
     #[cfg(target_os = "macos")]
