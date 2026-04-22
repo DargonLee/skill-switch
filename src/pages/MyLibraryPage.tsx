@@ -611,6 +611,53 @@ function DetailPanel({
   const iconColors = getIconColors(skill.name);
   const initial = skill.name.charAt(0).toUpperCase();
   const toast = useToast();
+  const [skillmdContent, setSkillmdContent] = useState(skill.content ?? "");
+  const [skillmdLoading, setSkillmdLoading] = useState(false);
+  const [skillmdError, setSkillmdError] = useState<string | null>(null);
+
+  // Read SKILL.md fresh from disk on skill switch, then poll for external edits
+  useEffect(() => {
+    let disposed = false;
+    let sourceDir = "";
+    let inFlight = false;
+
+    const readContent = async () => {
+      if (!sourceDir || inFlight) return;
+      inFlight = true;
+      const result = await readExternalSkillContent(sourceDir);
+      inFlight = false;
+      if (disposed) return;
+      if (result.ok) {
+        setSkillmdContent(result.value);
+        setSkillmdError(null);
+      } else {
+        setSkillmdError(result.error);
+      }
+      setSkillmdLoading(false);
+    };
+
+    setSkillmdLoading(true);
+    setSkillmdError(null);
+
+    void skillGetSourceDirPath(skill.id).then((dirResult) => {
+      if (disposed) return;
+      if (!dirResult.ok) {
+        setSkillmdError(dirResult.error);
+        setSkillmdLoading(false);
+        return;
+      }
+      sourceDir = dirResult.value;
+      void readContent();
+    });
+
+    // Poll every 2s so external edits (Typora saves, etc.) sync in real time
+    const timer = setInterval(readContent, 2000);
+
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
+  }, [skill.id]);
 
   // Global app enable states — persisted per skillId in localStorage
   const globalStorageKey = `skill-global-${skill.id}`;
@@ -1005,7 +1052,19 @@ function DetailPanel({
                 </button>
               </div>
             </div>
-            <pre className={s.skillmdCode}>{skill.content}</pre>
+            {skillmdLoading ? (
+              <div className={s.skillmdLoading}>
+                <Loader size={16} className={s.btnSpin} />
+                <span>加载中...</span>
+              </div>
+            ) : skillmdError ? (
+              <div className={s.skillmdError}>
+                <AlertTriangle size={16} />
+                <span>{skillmdError}</span>
+              </div>
+            ) : (
+              <pre className={s.skillmdCode}>{skillmdContent}</pre>
+            )}
           </div>
         )}
 
@@ -1279,7 +1338,8 @@ export function MyLibraryPage({
     : appFilteredExternal;
 
   useEffect(() => {
-    const activeManagedSkills = activeLibraryTab === "self-created" ? skills : [];
+    const activeManagedSkills =
+      activeLibraryTab === "self-created" ? skills : [];
 
     if (activeLibraryTab === "external") return;
 
