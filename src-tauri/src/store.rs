@@ -98,6 +98,7 @@ fn app_cli_dir_aliases(app_id: &str) -> Option<&'static [&'static str]> {
         "claude" => Some(&[".claude"]),
         "codex" => Some(&[".codex"]),
         "cursor" => Some(&[".cursor"]),
+        "opencode" => Some(&[".opencode", ".config/opencode"]),
         _ => None,
     }
 }
@@ -3915,7 +3916,7 @@ pub fn check_symlink_status(
     };
 
     // Check each app's installation status
-    let apps = ["claude", "codex", "cursor"];
+    let apps = ["claude", "codex", "cursor", "opencode"];
     let mut statuses = Vec::new();
 
     for app_id in apps {
@@ -3987,7 +3988,7 @@ pub fn repair_broken_symlinks(
     let mut removed_symlinks = Vec::new();
     let mut errors = Vec::new();
 
-    let apps = ["claude", "codex", "cursor"];
+    let apps = ["claude", "codex", "cursor", "opencode"];
 
     for app_id in apps {
         for install_path in app_skill_paths(&base_path, app_id, slug)? {

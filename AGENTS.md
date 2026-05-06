@@ -4,7 +4,7 @@ Guidance for AI coding agents working with this repository.
 
 ## Project Overview
 
-**SkillSwitch** is a cross-platform Tauri 2 desktop application for managing AI coding assistant "Skills" across multiple tools: **Claude Code**, **Codex CLI**, **Gemini CLI**, **Cursor**, and **Windsurf**. It provides a unified interface to install, create, discover, backup, and sync skill/slash-command files across global and project-level scopes.
+**SkillSwitch** is a cross-platform Tauri 2 desktop application for managing AI coding assistant "Skills" across multiple tools: **Claude Code**, **Codex CLI**, **Gemini CLI**, **Cursor**, **Windsurf**, and **OpenCode**. It provides a unified interface to install, create, discover, backup, and sync skill/slash-command files across global and project-level scopes.
 
 ### What It Does
 
@@ -26,6 +26,7 @@ Guidance for AI coding agents working with this repository.
 | Gemini CLI | `gemini` | — | `.gemini/` |
 | Cursor | `cursor` | `#0891b2` (cyan) | `.cursor/` |
 | Windsurf | `windsurf` | — | `.windsurf/` |
+| OpenCode | `opencode` | `#00A3FF` (blue) | `.opencode/` or `.config/opencode/` |
 
 ---
 

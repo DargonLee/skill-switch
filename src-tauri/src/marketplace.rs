@@ -40,6 +40,17 @@ fn load_marketplace_data(
             .app_data_dir()
             .ok()
             .map(|app_data| app_data.join("data").join("marketplace.json")),
+        // Fallback 2: try Tauri updater staging directory
+        app.path()
+            .resource_dir()
+            .ok()
+            .map(|resource_path| {
+                resource_path
+                    .join("_up_")
+                    .join("public")
+                    .join("data")
+                    .join("marketplace.json")
+            }),
     ];
 
     for path in paths_to_try.into_iter().flatten() {

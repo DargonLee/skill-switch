@@ -86,6 +86,7 @@
   --app-claude:   #2563eb;
   --app-codex:    #7c3aed;
   --app-cursor:   #0891b2;
+  --app-opencode: #00A3FF;
 
   /* Semantic surface aliases (map to oklch vars) */
   --bg-base:     var(--surface);

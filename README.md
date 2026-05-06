@@ -2,7 +2,7 @@
 
 <img src="images/home.png" alt="SkillSwitch 主界面" width="100%">
 
-**AI Skill 管理工具** — 专为 Claude Code、Codex CLI、Gemini CLI、Cursor、Windsurf 等 AI 编程助手设计的跨平台桌面应用，统一管理、发现、创建和备份你的 Skill 文件。
+**AI Skill 管理工具** — 专为 Claude Code、Codex CLI、Gemini CLI、Cursor、Windsurf、OpenCode 等 AI 编程助手设计的跨平台桌面应用，统一管理、发现、创建和备份你的 Skill 文件。
 
 ---
 
@@ -41,12 +41,13 @@
 侧边栏切换管理的 AI 应用：
 
 | App | 标识色 |
-|---|---|
+|---|---|---|
 | Claude Code | 🤖 橙色 |
 | Codex CLI | ⌨️ 绿色 |
 | Gemini CLI | 💎 蓝色 |
 | Cursor | 🖱️ 紫色 |
 | Windsurf | 🏄 青色 |
+| OpenCode | ⚡ 蓝色 |
 
 ---
 

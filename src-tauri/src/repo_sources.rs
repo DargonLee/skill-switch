@@ -99,6 +99,107 @@ pub fn normalize_repo_list(
     repos.iter().map(|repo| normalize_repo(app, repo)).collect()
 }
 
+fn parse_github_url(url: &str) -> Option<(String, String)> {
+    let url = url.trim_end_matches(".git");
+    let parts: Vec<&str> = url.split("github.com/").collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let mut segments: Vec<&str> = parts[1].split('/').collect();
+    if segments.len() < 2 {
+        return None;
+    }
+    let owner = segments.remove(0).to_string();
+    let mut repo = segments.remove(0).to_string();
+    if repo.ends_with(".git") {
+        repo = repo.trim_end_matches(".git").to_string();
+    }
+    Some((owner, repo))
+}
+
+fn api_download_repo(owner: &str, repo: &str, branch: &str, dest: &Path) -> Result<(), String> {
+    let api_url = format!(
+        "https://api.github.com/repos/{}/{}/zipball/{}",
+        owner, repo, branch
+    );
+
+    // Create temp zip path
+    let zip_path = dest.with_extension("zip");
+    let temp_dir = dest.with_extension("tmp");
+
+    // Clean any previous temp files
+    if temp_dir.exists() {
+        fs::remove_dir_all(&temp_dir).map_err(|e| format!("清理临时目录失败：{}", e))?;
+    }
+    fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败：{}", e))?;
+
+    // Download using curl (works behind firewall that blocks github.com:443 but allows api.github.com)
+    let download_status = std::process::Command::new("cmd")
+        .args(&[
+            "/C",
+            &format!(
+                "curl -sL \"{}\" -o \"{}\"",
+                api_url,
+                zip_path.to_string_lossy()
+            ),
+        ])
+        .status()
+        .map_err(|e| format!("调用 curl 失败：{}", e))?;
+
+    if !download_status.success() {
+        let _ = fs::remove_dir_all(&temp_dir);
+        return Err("curl 下载失败，请检查网络连接".to_string());
+    }
+
+    // Extract using PowerShell Expand-Archive
+    let extract_status = std::process::Command::new("powershell")
+        .args(&[
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+                zip_path.to_string_lossy(),
+                temp_dir.to_string_lossy()
+            ),
+        ])
+        .status()
+        .map_err(|e| format!("调用 PowerShell 解压失败：{}", e))?;
+
+    if !extract_status.success() {
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::remove_file(&zip_path);
+        return Err("解压 ZIP 失败".to_string());
+    }
+
+    // Remove downloaded zip
+    let _ = fs::remove_file(&zip_path);
+
+    // Find the extracted directory (GitHub zip contains a single root dir: owner-repo-commit)
+    let entries: Vec<PathBuf> = fs::read_dir(&temp_dir)
+        .map_err(|e| format!("读取临时目录失败：{}", e))?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .collect();
+
+    if entries.len() != 1 || !entries[0].is_dir() {
+        let _ = fs::remove_dir_all(&temp_dir);
+        return Err("ZIP 结构异常：期望单个根目录".to_string());
+    }
+
+    let extracted_root = &entries[0];
+
+    // Move contents to final destination
+    if dest.exists() {
+        fs::remove_dir_all(dest).map_err(|e| format!("清理目标目录失败：{}", e))?;
+    }
+    fs::rename(extracted_root, dest).map_err(|e| format!("移动目录失败：{}", e))?;
+
+    // Clean up temp
+    let _ = fs::remove_dir_all(&temp_dir);
+
+    Ok(())
+}
+
 pub fn sync_repo_source(
     app: &tauri::AppHandle,
     repo: &ThirdPartyRepo,
@@ -111,21 +212,47 @@ pub fn sync_repo_source(
             .ok_or_else(|| "repo local path missing".to_string())?,
     );
 
-    if local_path.exists() {
+    // Try git first (works on most machines)
+    let git_ok = if local_path.exists() {
         if git::is_git_repo(&local_path) {
-            git::pull(&local_path)?;
+            git::pull(&local_path).is_ok()
         } else {
-            remove_path(&local_path)?;
+            remove_path(&local_path).ok();
             if let Some(parent) = local_path.parent() {
-                fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+                let _ = fs::create_dir_all(parent);
             }
-            git::clone_repository(&normalized.url, &local_path, None)?;
+            git::clone_repository(&normalized.url, &local_path, None).is_ok()
         }
     } else {
         if let Some(parent) = local_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            let _ = fs::create_dir_all(parent);
         }
-        git::clone_repository(&normalized.url, &local_path, None)?;
+        git::clone_repository(&normalized.url, &local_path, None).is_ok()
+    };
+
+    if !git_ok {
+        // Git failed (likely firewall blocking github.com:443).
+        // Fall back to GitHub API download (api.github.com:443 usually accessible).
+        if local_path.exists() {
+            let _ = remove_path(&local_path);
+        }
+
+        if let Some(parent) = local_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败：{}", e))?;
+        }
+
+        let (owner, repo_name) = parse_github_url(&normalized.url)
+            .ok_or_else(|| format!("无法解析 GitHub URL: {}", normalized.url))?;
+
+        // Try API download with main branch, fallback to master
+        api_download_repo(&owner, &repo_name, "main", &local_path)
+            .or_else(|_| api_download_repo(&owner, &repo_name, "master", &local_path))
+            .map_err(|_| {
+                format!(
+                    "同步失败：git 和 API 下载均失败 (url: {})",
+                    normalized.url
+                )
+            })?;
     }
 
     normalized.last_synced_at = Some(store::now_ms());
@@ -303,11 +430,11 @@ pub fn list_repo_source_skills(
         return Err("source repo has not been synced locally yet".to_string());
     }
 
-    if !git::is_git_repo(&local_path) {
-        return Err("local source repo is missing git metadata, please sync again".to_string());
-    }
-
-    let branch = git::branch(&local_path).unwrap_or_else(|| "main".to_string());
+    let branch = if git::is_git_repo(&local_path) {
+        git::branch(&local_path).unwrap_or_else(|| "main".to_string())
+    } else {
+        "main".to_string()
+    };
     let skill_roots = detect_skill_roots(&local_path)?;
     let mut skills = Vec::new();
 
